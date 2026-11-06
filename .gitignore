@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+# Local caches (embedding model, vector index)
+.cache/
+chroma/
+# Secrets
+.env
+.env.*
+!.env.example
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

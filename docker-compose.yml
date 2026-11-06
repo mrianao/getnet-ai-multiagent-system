@@ -1,0 +1,35 @@
+# Default: the API runs in Docker and talks to Ollama running natively on the host
+# (on Apple Silicon, native Ollama uses the Metal GPU; Ollama inside Docker on macOS is CPU-only).
+#
+#   ollama pull llama3.2:3b && ollama serve      # on the host
+#   docker compose up --build
+#
+# Linux / no native Ollama: start the bundled Ollama container too:
+#   docker compose --profile ollama up --build
+#   docker compose exec ollama ollama pull llama3.2:3b
+#   (and set LLM_BASE_URL=http://ollama:11434/v1 in .env)
+services:
+  api:
+    build: .
+    image: getnet-ai-multiagent-system:latest
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  ollama:
