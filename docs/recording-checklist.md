@@ -24,7 +24,7 @@ para o texto ficar legível em 1080p. Nomeie os arquivos na ordem: `01-titulo.pn
 | 02 | 1 | README no GitHub: título + tabela de capacidades (§1) | GitHub |
 | 03 | 1 | `docs/traceability.md`: tabela Core requirements | GitHub |
 | 04 | 2 | README §2: diagrama Mermaid de arquitetura | GitHub |
-| 05 | 2 | `app/models/schemas.py`: `AgentResult` / `AgentTask` (linhas 73–91) | GitHub |
+| 05 | 2 | `app/models/schemas.py`: `AgentResult` / `AgentTask` (linhas 73–90) | GitHub |
 | 06 | 2 | `docs/architecture.md` §4: diagrama de sequência | GitHub |
 | 07 | 3 | `docs/architecture.md` §5: diagrama do pipeline RAG | GitHub |
 | 08 | 3 | README §11: passos do pipeline RAG | GitHub |

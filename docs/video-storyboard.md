@@ -30,7 +30,7 @@ Legenda das fontes das evidências:
 | # | Tempo | Visual | Arquivo / seção | O que o avaliador deve notar |
 |---|---|---|---|---|
 | 2.1 | 0:52 – 1:20 | Diagrama Mermaid de componentes, renderizado no GitHub | [Repo] `README.md` §2 *Architecture* | Input → Guardrails → Router → agentes + tools → Personality → Output (igual ao diagrama do PDF) |
-| 2.2 | 1:20 – 1:40 | Trecho de código: `class AgentResult` e `class AgentTask` | [Repo] `app/models/schemas.py` linhas 73–91 | Contrato tipado; campo `context: list[AgentResult]` |
+| 2.2 | 1:20 – 1:40 | Trecho de código: `class AgentResult` e `class AgentTask` | [Repo] `app/models/schemas.py` linhas 73–90 | Contrato tipado; campo `context: list[AgentResult]` |
 | 2.3 | 1:40 – 1:59 | Diagrama de sequência Mermaid | [Repo] `docs/architecture.md` §4 *Message workflow* | Execução sequencial: CS → Knowledge com contexto → Personality |
 
 **Narração:** parágrafo 2 ("A arquitetura segue o diagrama de referência…").
