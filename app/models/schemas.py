@@ -1,0 +1,90 @@
+"""Pydantic contracts: public API + inter-agent messages (AgentTask / AgentResult)."""
+from __future__ import annotations
+
+from enum import Enum
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class AgentName(str, Enum):
+    ROUTER = "router"
+    KNOWLEDGE = "knowledge"
+    CUSTOMER_SUPPORT = "customer_support"
+    ESCALATION = "escalation"
+
+
+class Intent(str, Enum):
+    PRODUCT_INFO = "product_info"
+    GENERAL = "general"
+    CUSTOMER_ACCOUNT = "customer_account"
+    TROUBLESHOOTING = "troubleshooting"
+    HUMAN = "human"
+
+
+Status = Literal["success", "partial", "escalated", "blocked", "error"]
+
+
+# ---------- Public API ----------
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000, examples=["When will the money from yesterday's sales be deposited?"])
+    user_id: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.\-]+$", examples=["cliente1988"])
+
+    @field_validator("message")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("message must not be blank")
+        return v.strip()
+
+
+class Source(BaseModel):
+    title: str
+    url: str
+    type: Literal["rag", "web", "tool"]
+    score: float | None = None
+
+
+class StepTrace(BaseModel):
+    agent: AgentName
+    status: Status
+    latency_ms: int
+    tools: list[str] = []
+    error: str | None = None
+
+
+class RouteDecision(BaseModel):
+    intent: Intent
+    agents: list[AgentName] = Field(..., min_length=1)
+    reason: str = ""
+    method: Literal["llm", "rules"] = "rules"
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    status: Status
+    agent: AgentName
+    agents_invoked: list[AgentName]
+    sources: list[Source] = []
+    metadata: dict[str, Any] = {}
+
+
+# ---------- Inter-agent messages ----------
+class AgentResult(BaseModel):
+    agent: AgentName
+    status: Status = "success"
+    answer: str = ""
+    sources: list[Source] = []
+    data: dict[str, Any] = {}
+    tools_used: list[str] = []
+    confidence: float = 1.0
+    latency_ms: int = 0
+    error: str | None = None
+
+
+class AgentTask(BaseModel):
+    trace_id: str
+    user_id: str
+    message: str
+    intent: Intent
+    context: list[AgentResult] = []
