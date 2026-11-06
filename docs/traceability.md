@@ -43,16 +43,18 @@ real index and real APIs ([`live-validation.md`](live-validation.md)), **D** = D
 
 | # | Scenario | Expected route | Offline test | Live (real LLM) |
 |---|---|---|---|---|
-| 1 | Get Clássica vs Get Smart | Knowledge / RAG | ✅ | see `live-validation.md` |
-| 2 | Weather in Porto Alegre tomorrow | Knowledge / `get_weather` | ✅ | see `live-validation.md` |
-| 3 | Yesterday's sales deposit | Customer Support / `get_settlement_schedule` | ✅ | see `live-validation.md` |
-| 4 | Pix: need a bank account? | Knowledge / RAG | ✅ | see `live-validation.md` |
-| 5 | Machine won't connect | Customer Support → Knowledge | ✅ | see `live-validation.md` |
-| 6 | Receivables advance (antecipação) | Knowledge / RAG | ✅ | see `live-validation.md` |
-| 7 | Euro exchange rate | Knowledge / `get_exchange_rate` | ✅ | see `live-validation.md` |
-| 8 | Transaction decline error | Customer Support → Knowledge | ✅ | see `live-validation.md` |
-| 9 | Crediário installments | Knowledge / RAG | ✅ | see `live-validation.md` |
-| 10 | WhatsApp Payment Link | Knowledge / RAG | ✅ | see `live-validation.md` |
+| 1 | Get Clássica vs Get Smart | Knowledge / RAG | ✅ | ✅ success |
+| 2 | Weather in Porto Alegre tomorrow | Knowledge / `get_weather` | ✅ | ✅ success |
+| 3 | Yesterday's sales deposit | Customer Support / `get_settlement_schedule` | ✅ | ✅ success |
+| 4 | Pix: need a bank account? | Knowledge / RAG | ✅ | ✅ success |
+| 5 | Machine won't connect | Customer Support → Knowledge | ✅ | ✅ success |
+| 6 | Receivables advance (antecipação) | Knowledge / RAG | ✅ | ✅ success |
+| 7 | Euro exchange rate | Knowledge / `get_exchange_rate` | ✅ | ✅ success |
+| 8 | Transaction decline error | Customer Support → Knowledge | ✅ | ✅ success |
+| 9 | Crediário installments | Knowledge / RAG | ✅ | ✅ success |
+| 10 | WhatsApp Payment Link | Knowledge / RAG | ✅ | ✅ success |
+
+**Live run:** 10/10 `success`, 10/10 routed by the LLM (see [`live-validation.md`](live-validation.md)).
 
 ## Deviations / notes
 

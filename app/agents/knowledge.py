@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import date
 
 from app.agents.base import BaseAgent, clean_answer, context_summary, language_instruction
 from app.agents.prompts import KNOWLEDGE_RAG_SYSTEM, KNOWLEDGE_WEB_SYSTEM
@@ -64,7 +65,10 @@ class KnowledgeAgent(BaseAgent):
         tools_used, results, sources = [], {}, []
         try:
             if WEATHER_RE.search(msg) and (city := detect_city(msg)):
-                w = await self.web.get_weather(city, detect_day_offset(msg))
+                offset = detect_day_offset(msg)
+                w = await self.web.get_weather(city, offset)
+                w["requested_day"] = {0: "today", 1: "tomorrow"}.get(offset, f"+{offset} days")
+                w["today_date"] = date.today().isoformat()
                 tools_used.append("get_weather")
                 results["weather"] = w
                 sources.append(Source(title=f"{w['provider']} forecast — {w['city']}", url=w["source_url"], type="web"))
