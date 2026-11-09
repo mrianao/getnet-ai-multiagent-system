@@ -22,7 +22,7 @@ real index and real APIs ([`live-validation.md`](live-validation.md)), **D** = D
 | 10 | Customer Support: ≥ 2 tools | 3 tools: `get_transaction_status`, `get_settlement_schedule`, `get_terminal_status` (+ profile) | T `test_tools.py` | PASS |
 | 11 | HTTP POST endpoint, payload `{message, user_id}`, meaningful JSON | `POST /chat` → `answer, status, agent, agents_invoked, sources, metadata` | T `test_chat_contract`, 9 invalid-input cases; L; D | PASS |
 | 12 | Dockerfile (+ compose) with standard Docker commands | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | D: `docker build` OK; `pytest` inside the image (all tests pass); container `healthy`; real `/chat` through the container | PASS |
-| 13 | Testing strategy + approach to integration testing | README §9 + `docs/implementation-plan.md`; 74 tests | T: `pytest` → 74 passed | PASS |
+| 13 | Testing strategy + approach to integration testing | README §9 + `docs/implementation-plan.md`; 77 tests | T: `pytest` → 77 passed | PASS |
 | 14 | Language & frameworks | Python 3.11+, FastAPI, Pydantic, ChromaDB, fastembed (rationale: ADR-001…007) | R | PASS |
 | 15 | Spec-Driven Development | `docs/spec.md`, `architecture.md`, `decisions.md`, `implementation-plan.md`, this file | R | PASS |
 | 16 | README: build, configure, run, tests | README §6–9 | R | PASS |
