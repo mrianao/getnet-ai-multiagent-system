@@ -15,7 +15,7 @@ from app.config import Settings
 from app.models.schemas import AgentName
 from app.rag.ingest import index_pages, load_snapshot
 from app.rag.store import Embedder, Retriever, VectorStore, build_vector_store
-from app.services.llm import LLMClient, OpenAICompatibleLLM
+from app.services.llm import LLMClient, build_llm
 from app.tools.web import USER_AGENT, WebTools
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class Container:
 
 def build_container(settings: Settings, *, llm: LLMClient | None = None, embedder: Embedder | None = None,
                     http: httpx.AsyncClient | None = None, store: VectorStore | None = None) -> Container:
-    llm = llm or OpenAICompatibleLLM(settings)
+    llm = llm or build_llm(settings)
     store = store or build_vector_store(settings, embedder)
     if settings.auto_ingest and store.count() == 0:
         pages = load_snapshot(settings.corpus_path)

@@ -10,11 +10,13 @@ ROOT = Path(__file__).resolve().parent.parent
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # --- LLM (any OpenAI-compatible endpoint; default: local Ollama) ---
+    # --- LLM (default: local Ollama) ---
+    # LLM_PROVIDER=anthropic uses Claude via the Anthropic SDK (LLM_BASE_URL is ignored);
+    # any other value uses the OpenAI-compatible client.
     llm_provider: str = "ollama"
     llm_base_url: str = "http://localhost:11434/v1"
     llm_model: str = "llama3.2:3b"
-    llm_api_key: str = "ollama"  # Ollama ignores it; Groq/OpenAI need a real key
+    llm_api_key: str = "ollama"  # Ollama ignores it; Groq/OpenAI/Anthropic need a real key
     llm_temperature: float = 0.1
     llm_timeout_s: float = 120.0
     llm_max_tokens: int = 500

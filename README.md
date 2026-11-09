@@ -98,7 +98,7 @@ app/
 └── services/               # llm client, guardrails, observability
 data/corpus/pages.jsonl     # snapshot of extracted official Getnet pages (46 pages)
 scripts/live_check.py       # live validation of the 10 PDF scenarios (real LLM)
-tests/                      # 74 offline tests
+tests/                      # 77 offline tests
 docs/                       # SDD: spec, architecture, decisions, plan, traceability, demo
 ```
 
@@ -128,7 +128,7 @@ Which agents handle each intent:
 |---|---|---|
 | Language/API | Python 3.11+, FastAPI, Pydantic v2 | Typed contracts, automatic OpenAPI docs, async |
 | LLM | **Ollama + `llama3.2:3b`** (default) | Free; runs on a MacBook M1 with 8 GB; supports JSON mode |
-| LLM client | Single OpenAI-compatible client (httpx) | Switch to Groq or OpenAI by changing `.env` |
+| LLM client | OpenAI-compatible client (httpx) + Anthropic Claude client (official SDK) | Switch to Groq, OpenAI or Claude by changing `.env` |
 | Embeddings | fastembed `paraphrase-multilingual-MiniLM-L12-v2` | Free, CPU/ONNX, **multilingual** (English questions, Portuguese pages) |
 | Vector DB | ChromaDB (embedded, persistent, cosine) | A real vector store with metadata and no extra service |
 | Retrieval | **Hybrid**: dense + BM25 with Reciprocal Rank Fusion | Dense search alone ranked product names ("Get Clássica") poorly |
@@ -208,7 +208,7 @@ needed for the default setup.
 | `LLM_BASE_URL` | `http://localhost:11434/v1` | Any OpenAI-compatible endpoint |
 | `LLM_MODEL` | `llama3.2:3b` | e.g. `llama-3.1-8b-instant` on Groq |
 | `LLM_API_KEY` | `ollama` | Needed only for cloud providers |
-| `LLM_PROVIDER` | `ollama` | Label shown in responses and logs |
+| `LLM_PROVIDER` | `ollama` | Label shown in responses and logs; `anthropic` switches to the Claude client |
 | `RAG_TOP_K` / `RAG_MIN_SCORE` | `5` / `0.25` | Retrieval depth / minimum cosine similarity |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `900` / `150` | Characters |
 | `TAVILY_API_KEY` | empty | Optional (free tier) for better general web search |
@@ -216,6 +216,9 @@ needed for the default setup.
 
 To use the **Groq free tier** instead of a local model (no billing), set:
 `LLM_BASE_URL=https://api.groq.com/openai/v1`, `LLM_MODEL=llama-3.1-8b-instant`, `LLM_API_KEY=<key>`.
+
+To use **Anthropic Claude**, set `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-opus-5-5` and
+`LLM_API_KEY=<your-anthropic-key>` (`LLM_BASE_URL` is ignored).
 
 ## 8. Docker
 
@@ -268,7 +271,7 @@ python -m pytest -q
 python -m pytest --cov=app --cov-report=term-missing
 ```
 
-Current result: **74 passed, 88 % line coverage of `app/`**, all offline.
+Current result: **77 passed, 87 % line coverage of `app/`**, all offline.
 
 ### Testing strategy
 
@@ -396,8 +399,11 @@ Router then hands off to the Escalation agent. One failing agent never causes an
 
 ## 13. LLM integration & prompt strategy
 
-- **One OpenAI-compatible client** (`app/services/llm.py`) covers Ollama `/v1`, Groq and OpenAI.
-  Agents depend on a `LLMClient` protocol, so tests inject a `FakeLLM`.
+- **Two interchangeable clients** (`app/services/llm.py`): an OpenAI-compatible one covers Ollama `/v1`,
+  Groq and OpenAI, and `AnthropicLLM` calls Claude through the official Anthropic SDK. `build_llm` picks one
+  from `LLM_PROVIDER`. Agents depend on a `LLMClient` protocol, so tests inject a `FakeLLM`.
+  Claude has no `response_format`, so its JSON mode adds an explicit instruction to the system prompt
+  and the same tolerant parser handles the output.
 - **The LLM decides, code validates.** The router and the tool planner use `response_format: json_object`.
   The output is parsed, validated with Pydantic, and the tool names are checked against the
   registry (a hallucinated tool is dropped). Invalid output falls back to deterministic rules,

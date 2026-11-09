@@ -51,7 +51,7 @@ conversation memory, production deployment.
 |----|-------------|---------------------|
 | NFR-01 | Zero paid dependencies | The default stack is Ollama (`llama3.2:3b`) + fastembed (local) + ChromaDB (embedded) + free public APIs. |
 | NFR-02 | Runs on a MacBook Pro M1 with 8 GB RAM | A 3B model (~2 GB) plus a multilingual MiniLM embedding model (~0.25 GB). No GPU required. |
-| NFR-03 | Provider-agnostic LLM | Any OpenAI-compatible endpoint (Ollama, Groq, OpenAI) can be selected through `.env` only. |
+| NFR-03 | Provider-agnostic LLM | Any OpenAI-compatible endpoint (Ollama, Groq, OpenAI) or Anthropic Claude can be selected through `.env` only. |
 | NFR-04 | Deterministic, offline test suite | Tests use a fake LLM, a hash-based fake embedder and mocked HTTP. No network is needed. |
 | NFR-05 | Resilience | A malformed LLM JSON falls back to deterministic rules. A tool or HTTP failure returns a degraded but valid response (`status: "partial"`). Network calls have timeouts. |
 | NFR-06 | No secrets or real PII in the repo | `.env` is git-ignored. Mock customer data is synthetic and labelled `"simulated": true`. |
