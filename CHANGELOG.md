@@ -20,6 +20,20 @@ Measured before/after results: [`docs/evaluation.md`](docs/evaluation.md).
 | **5 — Adaptive replanning** | Evaluator expectation (PDF asks for "agent or sequence of agents", already met) | Bounded deterministic supervisor: observe → replan after each step; max 4 steps; no repeated agent; latency budget; escalation kept last; decisions traced in `metadata.replans` | `RouterAgent.replan`; `tests/test_replanning.py` (6) |
 | **6 — Observability** | Bonus item (PDF: present a strategy; may implement traces/logs) | Provider-reported token usage per call/step/request; persisted request traces with evidence references; operator-only Prometheus `/metrics` (status, route method, intents, escalations, p50/p95, tokens, grounding, unresolved tickets) | `app/services/usage.py`, `app/state/traces.py`; `tests/test_observability.py` (4) |
 
+### Fixes driven by the real-model evaluation (runs 1–3) and the Docker smoke test
+Each was observed in real answers, fixed, and pinned with a regression test:
+- **Routing validation** — the 3B router sent product questions mentioning "vender" / "receber vendas" /
+  "my sales" to the account agent (pt02, pt06, pdf04). `customer_account` now requires a specific
+  account-data signal; otherwise it is corrected to `product_info` (reason recorded).
+- **Follow-up rewrite validation** — the LLM rewrite once copied the assistant's previous answer (mt03, run 1)
+  and once *invented* "12 parcelas" (run 2; the page says 48x). Rewrites that look like answers, copy the
+  assistant, or introduce numbers absent from the merchant's messages are rejected → deterministic fallback.
+- **Deterministic Personality composition** — the LLM merge dropped the terminal diagnosis (pdf05);
+  multi-agent answers are now composed as account diagnosis → official guidance → human support.
+- **Magnitude check** — "R\$ 20 mil" (thousand) rendered as "R\$ 20 million" passed as "20" (pt03);
+  magnitude words are normalised and the lossy ÷1000 tolerance removed; glossary: mil = thousand.
+- **Language detection** — a Portuguese question was answered in English inside Docker; PT function words added.
+
 ### Also added
 - **HTML interface** at `/ui` (merchant chat + operator queue), strict CSP — a usability addition, not a challenge requirement.
 - Docker: `STATE_DB_PATH=/app/state/app.db` on a named volume owned by the non-root user.
