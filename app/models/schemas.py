@@ -28,7 +28,11 @@ Status = Literal["success", "partial", "escalated", "blocked", "error"]
 # ---------- Public API ----------
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000, examples=["When will the money from yesterday's sales be deposited?"])
+    # Original {message, user_id} contract preserved. Identity is established by the bearer token;
+    # user_id MUST equal the authenticated merchant (otherwise 403) — it can no longer select identity.
     user_id: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.\-]+$", examples=["cliente1988"])
+    conversation_id: str | None = Field(None, pattern=r"^[a-f0-9]{32}$",
+                                        description="Omit to start a new conversation; reuse the returned id for follow-ups.")
 
     @field_validator("message")
     @classmethod
@@ -67,6 +71,7 @@ class ChatResponse(BaseModel):
     agents_invoked: list[AgentName]
     sources: list[Source] = []
     metadata: dict[str, Any] = {}
+    conversation_id: str | None = None
 
 
 # ---------- Inter-agent messages ----------
@@ -84,7 +89,9 @@ class AgentResult(BaseModel):
 
 class AgentTask(BaseModel):
     trace_id: str
-    user_id: str
-    message: str
+    user_id: str          # authenticated merchant id (from the Principal, never from the request body)
+    message: str          # standalone message (follow-ups are rewritten with conversation history)
     intent: Intent
     context: list[AgentResult] = []
+    conversation_id: str | None = None
+    history: list[dict] = []  # bounded window of prior turns (role, content), already sanitized

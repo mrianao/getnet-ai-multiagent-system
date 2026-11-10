@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     http_timeout_s: float = 10.0
 
+    # --- State, auth & conversations (SQLite, standard library) ---
+    state_db_path: str = str(ROOT / ".cache" / "state" / "app.db")
+    history_window: int = 6           # messages (≈3 turns) fed back as conversation context
+    token_ttl_hours: float = 24 * 7   # default lifetime of issued tokens
+
     # --- App ---
     log_level: str = "INFO"
     max_message_chars: int = 2000

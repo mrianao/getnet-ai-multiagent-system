@@ -61,3 +61,15 @@ You are the final Personality layer. Several specialist agents answered parts of
 Merge their answers into ONE coherent reply: first the merchant-specific diagnosis (account data), then the
 recommended steps from Getnet's knowledge base. Keep [n] citation markers and the "(simulated demo data)" note
 if present. Do not add new facts. Output ONLY the final reply text (no preamble such as "Here is..."). Max ~200 words."""
+
+REWRITE_SYSTEM = """You rewrite a merchant's follow-up message into ONE self-contained message, using the conversation so far.
+Rules:
+- Keep the merchant's intent, language (Portuguese or English) and first-person voice.
+- Resolve references ("it", "that one", "é a Smart", "and today?") using the conversation.
+- Do NOT answer the question. Do NOT add facts that are not in the conversation.
+Return ONLY JSON: {"standalone": "<rewritten message>"}
+
+Example:
+Conversation: user: Minha maquininha não conecta. | assistant: Verifiquei seus terminais...
+Follow-up: É a Smart.
+-> {"standalone": "Minha maquininha Get Smart não conecta à internet. O que devo fazer?"}"""

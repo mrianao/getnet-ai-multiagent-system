@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from app.agents.base import BaseAgent
 from app.agents.personality import Personality
-from app.agents.prompts import ROUTER_SYSTEM
+from app.agents.prompts import REWRITE_SYSTEM, ROUTER_SYSTEM
 from app.models.schemas import (AgentName, AgentResult, AgentTask, ChatResponse, Intent, RouteDecision, StepTrace)
 from app.services.guardrails import check_input
 from app.services.llm import LLMClient, LLMError, parse_json
@@ -44,6 +44,26 @@ _PRODUCT_Q = re.compile(r"^\s*(do i need|can i|how does|how do|how many|what is|
 _GETNET = re.compile(r"getnet|pix|link|maquininha|crediário|crediario|antecipa|get smart|get cl[aá]ssica|receivables", re.I)
 
 
+_FOLLOWUP_LEAD = re.compile(
+    r"^\s*(e|and|what about|how about|e quanto|e a|e o|e as|e os|é a|é o|e[ée] a|it'?s (the|a|an)|is it|also|tamb[eé]m|"
+    r"mas|but|and the|e se|e para|e pra|same|mesm[ao])\b", re.I)
+DEFAULT_REASON = "default: Getnet products/services"
+
+
+def is_followup(message: str, history: list[dict] | None) -> bool:
+    """Deterministic follow-up detector: only consulted when the conversation has history.
+
+    A message is treated as a follow-up when it is short and matches no explicit routing rule
+    (e.g. "É a Smart.", "E a de ontem?"), or when it opens with an elliptical lead ("and what about…").
+    Self-contained messages keep their original wording, so single-turn behaviour is unchanged.
+    """
+    if not history or not any(h["role"] == "user" for h in history):
+        return False
+    words = len(message.split())
+    explicit = classify_rules(message).reason != DEFAULT_REASON
+    return (words <= 6 and not explicit) or (bool(_FOLLOWUP_LEAD.match(message)) and words <= 14)
+
+
 def classify_rules(message: str) -> RouteDecision:
     if _HUMAN.search(message):
         intent, reason = Intent.HUMAN, "explicit human request"
@@ -56,7 +76,7 @@ def classify_rules(message: str) -> RouteDecision:
     elif _GENERAL.search(message) and not _GETNET.search(message):
         intent, reason = Intent.GENERAL, "general-purpose question (not about Getnet)"
     else:
-        intent, reason = Intent.PRODUCT_INFO, "default: Getnet products/services"
+        intent, reason = Intent.PRODUCT_INFO, DEFAULT_REASON
     return RouteDecision(intent=intent, agents=PLANS[intent], reason=reason, method="rules")
 
 
@@ -80,7 +100,31 @@ class RouterAgent:
                 logger.info("LLM routing failed, using rules: %s", e)
         return classify_rules(message)
 
-    async def handle(self, message: str, user_id: str) -> ChatResponse:
+    async def resolve_followup(self, message: str, history: list[dict] | None) -> tuple[str, dict]:
+        """Turn an elliptical follow-up into a standalone message (LLM rewrite → deterministic fallback)."""
+        info = {"history_messages": len(history or []), "followup": False, "rewrite_method": None}
+        if not is_followup(message, history):
+            return message, info
+        info["followup"] = True
+        last_user = next((h["content"] for h in reversed(history) if h["role"] == "user"), "")
+        convo = " | ".join(f"{h['role']}: {h['content'][:300]}" for h in history[-4:])
+        try:
+            raw = await self.llm.chat(REWRITE_SYSTEM, f"Conversation: {convo}\nFollow-up: {message}", json_mode=True,
+                                      max_tokens=120)
+            standalone = str(parse_json(raw).get("standalone", "")).strip()
+            if 3 <= len(standalone) <= 400 and check_input(standalone).allowed:
+                info["rewrite_method"] = "llm"
+                info["standalone_message"] = standalone
+                return standalone, info
+        except (LLMError, ValueError, AttributeError, TypeError) as e:
+            logger.info("follow-up rewrite fallback: %s", e)
+        standalone = f"{last_user} {message}".strip()[:600]
+        info["rewrite_method"] = "concat"
+        info["standalone_message"] = standalone
+        return standalone, info
+
+    async def handle(self, message: str, user_id: str, history: list[dict] | None = None,
+                     conversation_id: str | None = None) -> ChatResponse:
         trace_id = str(uuid.uuid4())
         t0 = time.perf_counter()
         guard = check_input(message)
@@ -94,13 +138,19 @@ class RouterAgent:
                 status="blocked", agent=AgentName.ROUTER, agents_invoked=[],
                 metadata=meta | {"blocked_reason": guard.reason, "latency_ms": int((time.perf_counter() - t0) * 1000)})
 
-        route = await self.classify(guard.sanitized)
-        log_event(logger, "routed", trace_id=trace_id, intent=route.intent.value, agents=[a.value for a in route.agents], method=route.method)
+        standalone, conv_info = await self.resolve_followup(guard.sanitized, history)
+        meta["conversation"] = conv_info
+        route = await self.classify(standalone)
+        log_event(logger, "routed", trace_id=trace_id, intent=route.intent.value, agents=[a.value for a in route.agents],
+                  method=route.method, followup=conv_info["followup"])
+
+        def new_task(intent=route.intent):
+            return AgentTask(trace_id=trace_id, user_id=user_id, message=standalone, intent=intent, context=list(results),
+                             conversation_id=conversation_id, history=list(history or []))
 
         results: list[AgentResult] = []
         for agent_name in route.agents:
-            task = AgentTask(trace_id=trace_id, user_id=user_id, message=guard.sanitized, intent=route.intent, context=list(results))
-            results.append(await self.agents[agent_name].run(task))
+            results.append(await self.agents[agent_name].run(new_task()))
 
         # Human handoff when nothing useful could be produced (BR-03)
         needs_handoff = route.intent != Intent.HUMAN and (
@@ -108,10 +158,9 @@ class RouterAgent:
             or (route.intent == Intent.PRODUCT_INFO and max(r.confidence for r in results) <= self.escalation_threshold)
         )
         if needs_handoff and AgentName.ESCALATION in self.agents:
-            task = AgentTask(trace_id=trace_id, user_id=user_id, message=guard.sanitized, intent=route.intent, context=list(results))
-            results.append(await self.agents[AgentName.ESCALATION].run(task))
+            results.append(await self.agents[AgentName.ESCALATION].run(new_task()))
 
-        answer, merged_with_llm = await self.personality.compose(guard.sanitized, results)
+        answer, merged_with_llm = await self.personality.compose(standalone, results)
         status = _overall_status(results)
         sources = []
         for r in results:
