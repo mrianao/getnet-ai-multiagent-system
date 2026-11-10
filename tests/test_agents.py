@@ -78,3 +78,14 @@ def test_clean_answer_strips_meta_and_signoff():
     from app.agents.base import clean_answer
     assert clean_answer("Here is a merged answer:\nyour terminal is offline.\n\nBest regards,\nGetnet") == "Your terminal is offline."
     assert clean_answer("Based on the provided CONTEXT excerpts, Pix is free.") == "Pix is free."
+
+
+def test_language_detection_portuguese_and_english():
+    """Docker smoke test: 'Em quantas parcelas posso vender no crediário?' was answered in English."""
+    from app.agents.base import detect_language
+    for pt in ["Em quantas parcelas posso vender no crediário?", "Preciso ter conta bancária para receber vendas pelo Pix?",
+               "Como funciona a antecipação de recebíveis na Getnet?", "Minha maquininha não conecta."]:
+        assert detect_language(pt) == "Portuguese", pt
+    for en in ["How many installments can I split a sale into with the crediário?", "What is Get Tap?",
+               "Do I need a bank account to receive my sales via Pix?", "What's the euro exchange rate today?"]:
+        assert detect_language(en) == "English", en

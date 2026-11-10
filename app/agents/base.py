@@ -39,12 +39,15 @@ def context_summary(task: AgentTask, max_chars: int = 1200) -> str:
     return "\n".join(parts)[:max_chars]
 
 
-_PT = re.compile(r"\b(n[aã]o|voc[eê]|minha?s?|meus?|quando|como|qual|quais|preciso|vendas?|obrigad[oa]|ol[aá]|para|est[aá]|maquininha|dinheiro|ontem|hoje|posso)\b", re.I)
+_PT = re.compile(r"\b(n[aã]o|voc[eê]|minha?s?|meus?|quando|como|qual|quais|preciso|vendas?|vender|obrigad[oa]|ol[aá]|para|bom|boa|"
+                 r"est[aá]|maquininha|dinheiro|ontem|hoje|posso|quantas?|quantos?|parcelas?|em|no|na|nos|nas|do|da|dos|das|"
+                 r"de|um|uma|que|[eé]|s[aã]o|com|pelo|pela|ter|tenho|funciona|conta|receber|cr[eé]dito|d[eé]bito)\b", re.I)
 
 
 def detect_language(text: str) -> str:
     """Tiny heuristic (pt/en) — makes the answer language explicit for small LLMs."""
-    return "Portuguese" if len(_PT.findall(text)) >= 2 else "English"
+    hits = len(_PT.findall(text))
+    return "Portuguese" if hits >= 2 or (hits == 1 and len(text.split()) <= 4) else "English"
 
 
 def language_instruction(text: str) -> str:
