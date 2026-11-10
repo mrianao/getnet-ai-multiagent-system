@@ -6,7 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     ANONYMIZED_TELEMETRY=False \
     EMBEDDING_CACHE_DIR=/app/.cache/fastembed \
-    CHROMA_DIR=/app/.cache/chroma
+    CHROMA_DIR=/app/.cache/chroma \
+    STATE_DB_PATH=/app/state/app.db
 
 WORKDIR /app
 
@@ -31,8 +32,11 @@ COPY pytest.ini ./
 # Build the vector index from the committed corpus snapshot at build time (fast cold start)
 RUN python -m app.rag.ingest
 
-RUN useradd --create-home appuser && chown -R appuser /app
+# /app/state holds the SQLite database (credentials hashes, conversations, tickets, traces).
+# Mount a volume there so state survives container restarts (see docker-compose.yml).
+RUN useradd --create-home appuser && mkdir -p /app/state && chown -R appuser /app
 USER appuser
+VOLUME ["/app/state"]
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1

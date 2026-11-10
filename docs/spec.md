@@ -107,3 +107,25 @@ Errors: `422` validation (FastAPI/Pydantic), `500` → `{"status":"error","detai
   can fail (mitigated by the rules fallback).
 - Customer data is simulated. There is no real Getnet integration.
 - The corpus is a point-in-time crawl of public pages. Content rendered by JavaScript may be missed.
+
+---
+
+## 9. v2 requirements (remediation after evaluator feedback)
+
+Origin: **E** = evaluator expectation (not in the PDF) · **B** = PDF bonus item completed · **P** = production readiness.
+
+| ID | Origin | Requirement | Acceptance criteria |
+|----|--------|-------------|---------------------|
+| FR-15 | E (gap 2) | Authenticated principal at the HTTP boundary | Every endpoint except `/health`, `/ui`, `/docs` requires a bearer token; missing/invalid/expired/revoked → 401; merchant identity for tools and conversations comes only from the token; body `user_id` ≠ principal → 403 |
+| FR-16 | E (gap 2) | Roles | `merchant` may chat and read own conversations; `operator` may manage tickets and read metrics/traces; wrong role → 403 |
+| FR-17 | E (gap 1) | Persistent multi-turn conversations | `conversation_id` returned on every chat; reuse continues the conversation; history survives restarts; another tenant's id → 404 |
+| FR-18 | E (gap 1) | Follow-up understanding | "Minha maquininha não conecta." → "É a Smart." is routed as troubleshooting with the Get Smart context; single-turn messages are unchanged |
+| FR-19 | E (gap 4) | Evidence retention | Every RAG answer exposes the exact chunks used (id, URL, text, scores, rank, agent, trace id); tool calls are recorded with arguments |
+| FR-20 | E/B (gap 4) | Deterministic grounding policy | Invalid citations removed; sentences with numbers/dates absent from the evidence removed; similarity only reported; extractive fallback when no factual claim survives |
+| FR-21 | B (gap 3) | Justified escalation only | Greetings, thanks, out-of-scope and zero-hit questions never open tickets; explicit requests and agent failures do |
+| FR-22 | B (gap 3) | Operational HITL | Persistent tickets; atomic claim; approve draft / reply / reject; conversation resumes; one open ticket per conversation; idempotent resolve; survives restarts |
+| FR-23 | E (gap 5) | Bounded replanning | ≤ 4 steps, no repeated agent, latency budget, every decision in `metadata.replans` |
+| FR-24 | B (gap 6) | Observability | Provider-reported tokens per step/request; persisted traces; operator-only `/metrics` |
+| FR-25 | P | HTML interface | `/ui` usable for single/multi-turn chat, history, technical details and the operator queue, against the authenticated API |
+| NFR-08 | P | No new paid dependency | State, auth, metrics use the Python standard library |
+| NFR-09 | P | Measured quality | `eval/` dataset and harness; baseline (original code) and final runs with the same harness |

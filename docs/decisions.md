@@ -61,3 +61,44 @@ Personality uses the LLM to merge them into one coherent reply.
 Questions like "yesterday's sales" need dates relative to now. Records are generated
 deterministically (fixed seed) relative to the current date, flagged `simulated: true`, and every
 Customer Support answer states that the data is simulated.
+
+---
+
+## v2 decisions (remediation)
+
+### ADR-012 — SQLite (standard library) for state
+Credentials, conversations, tickets and traces need durable, transactional storage that survives
+restarts, without adding infrastructure to a local, free stack. One SQLite file in WAL mode, with
+`BEGIN IMMEDIATE` transactions and a unique partial index for "one open ticket per conversation".
+Trade-off: single node. Moving to Postgres changes the store classes, not the agents.
+
+### ADR-013 — Opaque bearer tokens hashed with SHA-256, bound to a Principal
+Identity must not come from the request body. Tokens are 256-bit random values, so a fast hash is
+appropriate (no human-chosen passwords to brute-force). The `Principal` (subject, role,
+merchant_id) is the only source of tenant identity for tools, conversations and tickets. The
+`user_id` field stays for contract compatibility and must match. Not an IdP: OIDC/JWT would
+replace `TokenStore.authenticate` without touching the endpoints.
+
+### ADR-014 — Follow-up rewriting instead of feeding the whole history to every agent
+Only follow-ups need history. A deterministic detector decides; the LLM rewrites to a standalone
+message (validated, guardrail-checked) with a deterministic fallback. Agents keep receiving a
+single message, so prompts, costs and the 10 single-turn scenarios are unchanged.
+
+### ADR-015 — Grounding acts only on deterministic failures
+Embedding similarity is not entailment. The runtime removes only what can be proven unsupported
+(numbers/dates absent from the evidence, citations to non-existent excerpts) and reports
+similarity as a flag. This avoids deleting correct sentences on an arbitrary threshold, at the
+cost of not catching number-free semantic drift — which is addressed upstream (retrieval
+precision, prompts) and measured by the evaluation.
+
+### ADR-016 — Retrieval precision chosen by evaluation, not by hand
+Candidate settings (top-k, dedupe, lexical gate thresholds, dense safety net) were compared on the
+dataset's retrieval queries with the real embedder (`eval/retrieval_eval.py`). The adopted setting
+keeps hit@k and MRR, raises precision@k and removes the off-topic and duplicate hits. Known
+regression: "What is Get Tap?" precision 0.40 → 0.25 (the page is still retrieved).
+
+### ADR-017 — Deterministic bounded replanning, no framework migration
+The evaluators asked for Agent → Observe → Replan. The existing loop already had the right shape;
+a rule-based supervisor with explicit transitions, a step limit, no repeats and a latency budget
+gives that behaviour predictably and testably. An LLM supervisor would add latency and
+non-determinism on a 3B CPU model for little gain on the challenge scenarios.
