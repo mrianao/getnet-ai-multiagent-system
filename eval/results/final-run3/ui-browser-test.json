@@ -1,0 +1,117 @@
+[
+ {
+  "name": "login screen shown",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "invalid token rejected",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "merchant logged in",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "token not in page HTML",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "Shift+Enter keeps text (newline)",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "single-turn smalltalk answered",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "turn 1 troubleshooting answered",
+  "ok": true,
+  "extra": "AssistenteSua contaVocê está tendo problemas com a conexão da sua máquina. De acordo com o status do terminal, o \"T-001\""
+ },
+ {
+  "name": "turn 2 follow-up resolved (chip shown)",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "turn 2 routed to troubleshooting",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "technical details: trace + steps + memory",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "technical details: grounding/evidence shown when returned",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "sources rendered",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "history restored from server (4 messages)",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "escalation shown with ticket",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "conversation status awaiting human",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "operator sees open ticket",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "ticket resolved in operator queue",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "merchant UI shows operator reply (polling)",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "conversation active again",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "operator token cannot chat (403)",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "mobile: no horizontal overflow",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "mobile: sidebar hidden behind menu",
+  "ok": true,
+  "extra": ""
+ },
+ {
+  "name": "no browser console errors",
+  "ok": true,
+  "extra": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+ }
+]

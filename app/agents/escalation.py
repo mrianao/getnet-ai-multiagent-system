@@ -6,7 +6,7 @@ before the merchant sees it. See app/state/tickets.py for the workflow.
 """
 from __future__ import annotations
 
-from app.agents.base import BaseAgent
+from app.agents.base import BaseAgent, detect_language
 from app.models.schemas import AgentName, AgentResult, AgentTask
 from app.state.conversations import ConversationStore
 from app.state.tickets import TicketStore
@@ -32,12 +32,19 @@ class EscalationAgent(BaseAgent):
         ticket, created = self.tickets.open_or_get(
             conversation_id=conversation_id, merchant_id=task.user_id, reason=reason, request_message=task.message,
             ai_draft="\n\n".join(drafts) or None, context=context, trace_id=task.trace_id)
-        verb = "forwarded your request to" if created else "added this to your open request with"
+        if detect_language(task.message) == "Portuguese":
+            verb = "encaminhei sua solicitação para" if created else "adicionei isto à sua solicitação aberta com"
+            answer = (f"Certo! {verb[0].upper() + verb[1:]} um especialista da Getnet (protocolo {ticket['id']}). Ele verá "
+                      "esta conversa, então você não precisa repetir nada; a resposta aparecerá aqui. "
+                      "(Demo: os tickets vão para o console local de operadores.)")
+        else:
+            verb = "forwarded your request to" if created else "added this to your open request with"
+            answer = (f"I've {verb} a Getnet specialist (protocol {ticket['id']}). They will see this conversation, so you "
+                      "won't need to repeat yourself; their reply will appear here. "
+                      "(Demo: tickets go to the local operator console.)")
         return AgentResult(
             agent=self.name, status="escalated", tools_used=["create_handoff_ticket"],
             data={"ticket": {"ticket_id": ticket["id"], "status": ticket["status"], "created": created},
                   "evidence": [{"type": "ticket", "ticket_id": ticket["id"], "created": created}]},
-            answer=(f"I've {verb} a Getnet specialist (protocol {ticket['id']}). They will see this conversation, so you "
-                    "won't need to repeat yourself; their reply will appear here. "
-                    "(Demo: tickets go to the local operator console.)"),
+            answer=answer,
         )
