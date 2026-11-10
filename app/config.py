@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     history_window: int = 6           # messages (≈3 turns) fed back as conversation context
     token_ttl_hours: float = 24 * 7   # default lifetime of issued tokens
 
+    # --- Orchestration ---
+    replan_budget_s: float = 150.0    # after this many seconds only an escalation may still be added
+
     # --- App ---
     log_level: str = "INFO"
     max_message_chars: int = 2000

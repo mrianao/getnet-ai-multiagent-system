@@ -53,7 +53,10 @@ async def test_support_agent_template_fallback_when_llm_down(make_container):
 
 async def test_escalation_agent_creates_ticket(container):
     r = await container.router.agents[A.ESCALATION].run(task("talk to a human", Intent.HUMAN))
-    assert r.status == "escalated" and r.data["ticket"]["simulated"] is True
+    assert r.status == "escalated" and r.data["ticket"]["created"] is True
+    stored = container.tickets.get(r.data["ticket"]["ticket_id"])  # persisted, not an in-memory list
+    assert stored["status"] == "open" and stored["merchant_id"] == "cliente1988"
+    assert container.conversations.get_any(stored["conversation_id"])["status"] == "awaiting_human"
 
 
 async def test_personality_single_vs_merge(container):

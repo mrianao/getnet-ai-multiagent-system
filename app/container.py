@@ -20,6 +20,7 @@ from app.services.chat import ChatService
 from app.services.llm import LLMClient, build_llm
 from app.state.conversations import ConversationStore
 from app.state.db import Database
+from app.state.tickets import TicketStore
 from app.tools.customer import CUSTOMERS
 from app.tools.web import USER_AGENT, WebTools
 
@@ -37,6 +38,7 @@ class Container:
     tokens: TokenStore
     conversations: ConversationStore
     chat: ChatService
+    tickets: TicketStore
 
 
 def build_container(settings: Settings, *, llm: LLMClient | None = None, embedder: Embedder | None = None,
@@ -53,14 +55,15 @@ def build_container(settings: Settings, *, llm: LLMClient | None = None, embedde
     web = WebTools(http, settings.tavily_api_key)
     retriever = Retriever(store, settings.rag_top_k, settings.rag_min_score, dedupe=settings.rag_dedupe,
                           lexical_gate=settings.rag_lexical_gate)
+    db = db or Database(settings.state_db_path)
+    conversations = ConversationStore(db)
+    tickets = TicketStore(db)
     agents = {
         AgentName.KNOWLEDGE: KnowledgeAgent(llm, retriever, web, sim_threshold=settings.grounding_sim_threshold),
         AgentName.CUSTOMER_SUPPORT: CustomerSupportAgent(llm),
-        AgentName.ESCALATION: EscalationAgent(),
+        AgentName.ESCALATION: EscalationAgent(tickets, conversations),
     }
-    router = RouterAgent(llm, agents, Personality(llm))
-    db = db or Database(settings.state_db_path)
+    router = RouterAgent(llm, agents, Personality(llm), replan_budget_s=settings.replan_budget_s)
     tokens = TokenStore(db, known_merchants=set(CUSTOMERS))
-    conversations = ConversationStore(db)
-    chat = ChatService(router, conversations, settings.history_window)
-    return Container(settings, llm, store, http, router, db, tokens, conversations, chat)
+    chat = ChatService(router, conversations, settings.history_window, tickets)
+    return Container(settings, llm, store, http, router, db, tokens, conversations, chat, tickets)

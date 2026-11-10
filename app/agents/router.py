@@ -16,6 +16,8 @@ import uuid
 
 from pydantic import ValidationError
 
+from collections import deque
+
 from app.agents.base import BaseAgent
 from app.agents.personality import Personality
 from app.agents.prompts import REWRITE_SYSTEM, ROUTER_SYSTEM
@@ -82,6 +84,13 @@ _FOLLOWUP_LEAD = re.compile(
     r"^\s*(e|and|what about|how about|e quanto|e a|e o|e as|e os|é a|é o|e[ée] a|it'?s (the|a|an)|is it|also|tamb[eé]m|"
     r"mas|but|and the|e se|e para|e pra|same|mesm[ao])\b", re.I)
 DEFAULT_REASON = "default: Getnet products/services"
+_ACCOUNT_DATA = re.compile(
+    r"\b(yesterday|today'?s|last (week|month)|ontem|hoje|semana passada|deposited|depositad[oa]s?|repasse|"
+    r"my (transactions?|deposits?|settlements?)|minhas (transa[cç][oõ]es|vendas de)|was declined|foi recusad[oa])\b", re.I)
+MAX_STEPS = 4  # hard bound on agent executions per request (plan + replans)
+_EMBEDDED_PRODUCT_Q = re.compile(
+    r"\b(how does|how do|how can|what is|what are|como funciona|o que [eé]|como (posso|fa[cç]o))\b[^?.!]*"
+    r"(antecipa|credi[aá]rio|pix|link|get (smart|cl[aá]ssica|mini|tap)|taxa|fee|receivables)", re.I)
 
 
 def is_followup(message: str, history: list[dict] | None) -> bool:
@@ -124,9 +133,32 @@ class RouterAgent:
     name = AgentName.ROUTER
 
     def __init__(self, llm: LLMClient, agents: dict[AgentName, BaseAgent], personality: Personality,
-                 use_llm_routing: bool = True):
+                 use_llm_routing: bool = True, replan_budget_s: float = 150.0):
         self.llm, self.agents, self.personality = llm, agents, personality
         self.use_llm_routing = use_llm_routing
+        self.replan_budget_s = replan_budget_s
+
+    def replan(self, intent: Intent, message: str, last: AgentResult, results: list[AgentResult],
+               pending: list[AgentName], elapsed_s: float) -> list[tuple[AgentName, str]]:
+        """Bounded deterministic supervisor: observe the last result, propose next steps.
+
+        Explicit transitions only (no LLM): every proposal is logged in metadata.replans. Proposals
+        for agents that already ran or are already pending are discarded (no repeated actions).
+        """
+        done = {r.agent for r in results} | set(pending)
+        props: list[tuple[AgentName, str]] = []
+        if last.agent == AgentName.CUSTOMER_SUPPORT and last.status == "error" and intent in (
+                Intent.TROUBLESHOOTING, Intent.CUSTOMER_ACCOUNT):
+            props.append((AgentName.ESCALATION, "account data unavailable (support agent failed): human follow-up needed"))
+        if last.agent == AgentName.CUSTOMER_SUPPORT and last.status != "error" and intent == Intent.CUSTOMER_ACCOUNT \
+                and _EMBEDDED_PRODUCT_Q.search(message):
+            props.append((AgentName.KNOWLEDGE, "message also contains a Getnet product question"))
+        if last.agent == AgentName.KNOWLEDGE and last.status != "error" and intent == Intent.PRODUCT_INFO \
+                and _ACCOUNT_DATA.search(message):
+            props.append((AgentName.CUSTOMER_SUPPORT, "message also refers to the merchant's own account data"))
+        if elapsed_s > self.replan_budget_s:  # latency budget: only escalation may still be added
+            props = [p for p in props if p[0] == AgentName.ESCALATION]
+        return [p for p in props if p[0] not in done and p[0] in self.agents]
 
     async def classify(self, message: str) -> RouteDecision:
         pre = classify_rules(message)
@@ -197,14 +229,31 @@ class RouterAgent:
                      "personality_llm_merge": False, "latency_ms": int((time.perf_counter() - t0) * 1000)}
             log_event(logger, "request_completed", trace_id=trace_id, status="success", latency_ms=meta["latency_ms"])
             return ChatResponse(answer=answer, status="success", agent=AgentName.ROUTER, agents_invoked=[], metadata=meta)
-        for agent_name in route.agents:
+        # Plan → execute → observe → (bounded) replan. Escalation always runs last so it can carry an AI draft.
+        pending: deque[AgentName] = deque(route.agents)
+        replans: list[dict] = []
+        while pending and len(results) < MAX_STEPS:
+            agent_name = pending.popleft()
             results.append(await self.agents[agent_name].run(new_task()))
+            for nxt, why in self.replan(route.intent, standalone, results[-1], results, list(pending),
+                                        time.perf_counter() - t0):
+                (pending.append if nxt == AgentName.ESCALATION else pending.appendleft)(nxt)
+                if AgentName.ESCALATION in pending:  # keep escalation last
+                    pending.remove(AgentName.ESCALATION)
+                    pending.append(AgentName.ESCALATION)
+                replans.append({"after": agent_name.value, "action": f"add {nxt.value}", "reason": why})
+        if pending:
+            replans.append({"after": results[-1].agent.value, "action": "stop",
+                            "reason": f"step limit {MAX_STEPS} reached; skipped {[a.value for a in pending]}"})
 
-        # Human handoff ONLY when justified (BR-03): explicit request (HUMAN plan) or every agent failed.
+        # Human handoff ONLY when justified (BR-03): explicit request, a replanned escalation, or every agent failed.
         # Missing knowledge (zero retrieval hits) is answered honestly with an offer of a human — no auto-ticket.
-        needs_handoff = route.intent != Intent.HUMAN and all(r.status == "error" for r in results)
+        ran = {r.agent for r in results}
+        needs_handoff = AgentName.ESCALATION not in ran and all(r.status == "error" for r in results)
         if needs_handoff and AgentName.ESCALATION in self.agents:
             results.append(await self.agents[AgentName.ESCALATION].run(new_task()))
+            replans.append({"after": results[-2].agent.value, "action": "add escalation", "reason": "every agent failed"})
+        meta["replans"] = replans
 
         answer, merged_with_llm = await self.personality.compose(standalone, results)
         status = _overall_status(results)

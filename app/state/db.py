@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     decision         TEXT CHECK (decision IN ('approve_draft', 'reply', 'reject')),
     operator_reply   TEXT,
     trace_id         TEXT,
+    last_action_key  TEXT,             -- Idempotency-Key of the last state transition
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL,
     resolved_at      TEXT,
