@@ -51,9 +51,10 @@ def build_container(settings: Settings, *, llm: LLMClient | None = None, embedde
     http = http or httpx.AsyncClient(timeout=settings.http_timeout_s, follow_redirects=True,
                                      headers={"User-Agent": USER_AGENT})
     web = WebTools(http, settings.tavily_api_key)
-    retriever = Retriever(store, settings.rag_top_k, settings.rag_min_score)
+    retriever = Retriever(store, settings.rag_top_k, settings.rag_min_score, dedupe=settings.rag_dedupe,
+                          lexical_gate=settings.rag_lexical_gate)
     agents = {
-        AgentName.KNOWLEDGE: KnowledgeAgent(llm, retriever, web),
+        AgentName.KNOWLEDGE: KnowledgeAgent(llm, retriever, web, sim_threshold=settings.grounding_sim_threshold),
         AgentName.CUSTOMER_SUPPORT: CustomerSupportAgent(llm),
         AgentName.ESCALATION: EscalationAgent(),
     }

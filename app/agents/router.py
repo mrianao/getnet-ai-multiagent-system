@@ -172,6 +172,8 @@ class RouterAgent:
             "personality_llm_merge": merged_with_llm,
             "latency_ms": int((time.perf_counter() - t0) * 1000),
         }
+        meta["evidence"] = [e | {"agent": r.agent.value, "trace_id": trace_id} for r in results for e in r.data.get("evidence", [])]
+        meta["grounding"] = {r.agent.value: r.data["grounding"] for r in results if r.data.get("grounding")}
         for r in results:
             if r.agent == AgentName.ESCALATION:
                 meta["handoff_ticket"] = r.data.get("ticket", {}).get("ticket_id")

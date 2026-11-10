@@ -29,8 +29,11 @@ class Settings(BaseSettings):
     corpus_path: str = str(ROOT / "data" / "corpus" / "pages.jsonl")
     chunk_size: int = 900
     chunk_overlap: int = 150
-    rag_top_k: int = 5
+    rag_top_k: int = 4                 # was 5; chosen with eval/retrieval_eval.py (see docs/evaluation)
     rag_min_score: float = 0.25
+    rag_dedupe: bool = True            # drop near-duplicate chunks (FAQ hub repeats its subpages)
+    rag_lexical_gate: float | None = 0.10  # drop hits without lexical support unless dense top-2
+    grounding_sim_threshold: float = 0.5   # embedding proxy threshold (reported, never used to delete)
     auto_ingest: bool = True  # build the index from the snapshot at startup if empty
 
     # --- Web tools ---

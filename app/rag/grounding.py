@@ -164,8 +164,13 @@ def _evidence_lines(evidence: Sequence[dict]) -> list[str]:
 
 
 def check_grounding(answer: str, evidence: Sequence[dict], question: str = "", embed: EmbedFn | None = None,
-                    sim_threshold: float = 0.5) -> GroundingReport:
-    """Check an answer against the exact evidence chunks that were given to the generator."""
+                    sim_threshold: float = 0.5, citable: int | None = None) -> GroundingReport:
+    """Check an answer against the exact evidence that was given to the generator.
+
+    `citable`: how many leading evidence items carry [n] numbers (the rest — e.g. upstream agent
+    context — count as evidence for numbers/similarity but cannot be cited).
+    """
+    n_citable = len(evidence) if citable is None else citable
     claims = split_claims(answer)
     ev_text = "\n".join(e.get("text", "") for e in evidence)
     ev_nums = numbers(ev_text) | numbers(question)
@@ -185,16 +190,16 @@ def check_grounding(answer: str, evidence: Sequence[dict], question: str = "", e
     out: list[ClaimCheck] = []
     for i, c in enumerate(claims):
         cites = [int(n) for n in _CITE.findall(c)]
-        invalid = [n for n in cites if n < 1 or n > len(evidence)]
+        invalid = [n for n in cites if n < 1 or n > n_citable]
         chk = ClaimCheck(text=c, factual=i in factual_idx, citations=cites, invalid_citations=invalid)
         if chk.factual:
             chk.unsupported_numbers = sorted(_numbers_supported(numbers(c), ev_nums))
             if i in sims:
                 chk.best_similarity = sims[i]
                 semantic_ok = sims[i] >= sim_threshold
-            else:  # no embedder: lexical fallback
+            else:  # no embedder: numeric evidence, else lexical overlap (weak across languages)
                 cw = _content_words(c)
-                semantic_ok = bool(cw) and len(cw & ev_words) / len(cw) >= 0.3
+                semantic_ok = bool(numbers(c)) or (bool(cw) and len(cw & ev_words) / len(cw) >= 0.3)
             chk.supported = not chk.unsupported_numbers and semantic_ok
         out.append(chk)
     factual = [c for c in out if c.factual]
@@ -215,3 +220,39 @@ def check_grounding(answer: str, evidence: Sequence[dict], question: str = "", e
                            unsupported_number_claims=unsupported_num, weak_support_claims=weak,
                            cited_claims=sum(1 for c in factual if c.citations), verdict=verdict,
                            sim_threshold=sim_threshold)
+
+
+def apply_policy(answer: str, report: GroundingReport, remove_unsupported_numbers: bool = True) -> tuple[str, list[str]]:
+    """Conservative runtime policy — acts ONLY on deterministic failures.
+
+    * invalid citation markers are removed (the sentence is kept);
+    * when `remove_unsupported_numbers`, a sentence stating a number/date absent from the evidence
+      is removed (fabricated prices, limits and deadlines are the costliest errors in payments);
+    * weak embedding support is never a reason to delete text — it is only reported.
+    Returns (new_answer, removed_sentences).
+    """
+    removed = [c.text for c in report.claims
+               if remove_unsupported_numbers and c.factual and c.unsupported_numbers]
+    drop = set(removed)
+    lines_out = []
+    for line in answer.split("\n"):
+        sentences = re.split(r"(?<=[.!?])\s+", line)
+        kept = [x for x in sentences if _MD.sub("", x).strip(" \t-–•:") not in drop]
+        if sentences and not kept:
+            continue  # whole bullet/line removed
+        lines_out.append(" ".join(kept))
+    out = "\n".join(lines_out)
+    for c in report.claims:
+        for n in c.invalid_citations:
+            out = out.replace(f" [{n}]", "").replace(f"[{n}]", "")
+    out = re.sub(r"\n{3,}", "\n\n", out).strip()
+    return out, removed
+
+
+def summary(report: GroundingReport, removed: list[str], method: str) -> dict:
+    d = report.to_dict(include_claims=False)
+    d.update({"removed_claims": removed, "method": method,
+              "flagged_claims": [{"text": c.text[:160], "unsupported_numbers": c.unsupported_numbers,
+                                  "invalid_citations": c.invalid_citations, "best_similarity": c.best_similarity}
+                                 for c in report.claims if c.factual and not c.supported]})
+    return d

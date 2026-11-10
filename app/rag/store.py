@@ -76,6 +76,9 @@ class VectorStore:
     def embed_query(self, query: str) -> list[float]:
         return self._embedder.embed([query])[0]
 
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return self._embedder.embed(texts)
+
 
 class Retriever:
     """Hybrid retriever: dense top-N ∪ BM25 top-N, fused with Reciprocal Rank Fusion.
@@ -84,8 +87,18 @@ class Retriever:
     confidence threshold); ordering comes from RRF.
     """
 
-    def __init__(self, store: VectorStore, top_k: int = 5, min_score: float = 0.35, candidates: int = 30):
+    def __init__(self, store: VectorStore, top_k: int = 5, min_score: float = 0.35, candidates: int = 30,
+                 dedupe: bool = False, lexical_gate: float | None = None, dense_keep: int = 2):
+        """
+        dedupe:       drop a hit whose content is ≥60% contained in a higher-ranked hit (the /duvidas/
+                      hub page repeats its subpages, so duplicates waste context slots).
+        lexical_gate: drop a hit with BM25 < lexical_gate × max(BM25) — i.e. no lexical support for
+                      the query — unless it is in the dense top-`dense_keep` (cross-lingual safety net:
+                      an English question can match a Portuguese chunk with zero shared tokens).
+        Both default to off (= original behaviour); values are chosen by eval/retrieval_eval.py.
+        """
         self.store, self.top_k, self.min_score, self.candidates = store, top_k, min_score, candidates
+        self.dedupe, self.lexical_gate, self.dense_keep = dedupe, lexical_gate, dense_keep
         self._bm25 = None
         self._docs: dict | None = None
         self._indexed_count = -1
@@ -113,18 +126,34 @@ class Retriever:
         lex_rank = [docs["ids"][i] for i in np.argsort(-np.asarray(lex))[: self.candidates] if lex[i] > 0]
         fused = rrf([dense_rank, lex_rank])
         idx = {id_: i for i, id_ in enumerate(docs["ids"])}
-        hits = []
+        max_lex = max(lex) if len(lex) else 0.0
+        dense_top = set(dense_rank[: self.dense_keep])
+        hits, kept_tokens = [], []
         for id_ in sorted(fused, key=fused.get, reverse=True):
             i = idx[id_]
             score = float(cos[i])
             if score < self.min_score:
                 continue
+            if self.lexical_gate is not None and max_lex > 0 and lex[i] < self.lexical_gate * max_lex and id_ not in dense_top:
+                continue
+            if self.dedupe:
+                toks = set(_tok(docs["documents"][i]))
+                if any(toks and len(toks & k) / min(len(toks), len(k)) >= 0.6 for k in kept_tokens if k):
+                    continue
+                kept_tokens.append(toks)
             m = docs["metadatas"][i]
             hits.append({"id": id_, "text": docs["documents"][i], "url": m["url"], "title": m["title"],
-                         "score": round(score, 4), "rrf": round(fused[id_], 5), "bm25": round(lex[i], 3)})
+                         "score": round(score, 4), "rrf": round(fused[id_], 5), "bm25": round(lex[i], 3),
+                         "dense_rank": dense_rank.index(id_) + 1 if id_ in dense_rank else None})
             if len(hits) == self.top_k:
                 break
         return hits
+
+
+def _tok(text: str) -> list[str]:
+    from app.rag.hybrid import tokenize
+
+    return tokenize(text)
 
 
 def build_vector_store(s: Settings, embedder: Embedder | None = None) -> VectorStore:

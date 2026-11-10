@@ -10,6 +10,7 @@ from typing import Callable
 from app.agents.base import BaseAgent, clean_answer, language_instruction
 from app.agents.prompts import SUPPORT_ANSWER_SYSTEM, SUPPORT_PLANNER_SYSTEM
 from app.models.schemas import AgentName, AgentResult, AgentTask, Source
+from app.rag.grounding import check_grounding, summary
 from app.services.llm import LLMClient, LLMError, parse_json
 from app.tools import customer as ct
 
@@ -62,19 +63,30 @@ class CustomerSupportAgent(BaseAgent):
                                data={"profile": profile})
         tools, plan_method = await self.plan_tools(task.message)
         data: dict = {"profile": profile}
+        calls = []
         for t in tools:
-            data[t] = ct.TOOLS[t](task.user_id, today=self.today(), **self._args(t, task.message))
+            args = self._args(t, task.message)
+            data[t] = ct.TOOLS[t](task.user_id, today=self.today(), **args)
+            calls.append({"type": "tool", "tool": t, "arguments": args, "merchant_id": task.user_id, "simulated": True})
         user = (f"TODAY: {self.today().isoformat()}\nTOOL DATA:\n{json.dumps(data, ensure_ascii=False, indent=1)[:5000]}"
                 f"\n\nMERCHANT MESSAGE: {task.message}" + language_instruction(task.message))
+        grounding = None
         try:
             answer = clean_answer(await self.llm.chat(SUPPORT_ANSWER_SYSTEM, user))
+            # numeric check against the exact tool output; FLAG ONLY (derived totals are legitimate)
+            report = check_grounding(answer, [{"text": json.dumps(data, ensure_ascii=False) + f" {self.today().isoformat()}"}],
+                                     task.message, embed=None, citable=0)
+            grounding = summary(report, [], "numeric(flag-only) vs tool output")
             if "simulated demo data" not in answer.lower():  # enforce disclosure regardless of model compliance
                 answer += "\n\n(simulated demo data)"
             status = "success"
         except LLMError:
             answer = summarize(data)
             status = "partial"
-        return AgentResult(agent=self.name, status=status, answer=answer, data=data | {"plan_method": plan_method},
+        extra = {"plan_method": plan_method, "evidence": calls}
+        if grounding:
+            extra["grounding"] = grounding
+        return AgentResult(agent=self.name, status=status, answer=answer, data=data | extra,
                            tools_used=["get_customer_profile", *tools], confidence=0.9,
                            sources=[Source(title=f"Simulated merchant data: {t}", url=f"tool://{t}", type="tool") for t in tools])
 
