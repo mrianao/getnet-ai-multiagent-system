@@ -24,6 +24,7 @@ from app.agents.prompts import REWRITE_SYSTEM, ROUTER_SYSTEM
 from app.models.schemas import (AgentName, AgentResult, AgentTask, ChatResponse, Intent, RouteDecision, StepTrace)
 from app.services.guardrails import check_input
 from app.services.llm import LLMClient, LLMError, parse_json
+from app.services import usage
 from app.services.observability import log_event
 
 logger = logging.getLogger("router")
@@ -201,6 +202,7 @@ class RouterAgent:
                      conversation_id: str | None = None) -> ChatResponse:
         trace_id = str(uuid.uuid4())
         t0 = time.perf_counter()
+        usage.start()
         guard = check_input(message)
         meta = {"trace_id": trace_id, "llm_provider": self.llm.provider, "llm_model": self.llm.model,
                 "guardrails": {"pii_masked": guard.pii_masked, "flags": guard.flags}}
@@ -225,7 +227,8 @@ class RouterAgent:
         results: list[AgentResult] = []
         if not route.agents:  # smalltalk / out_of_scope: answered by the router, never escalated
             answer = smalltalk_reply(standalone) if route.intent == Intent.SMALLTALK else OUT_OF_SCOPE_REPLY
-            meta |= {"route": route.model_dump(mode="json"), "steps": [], "evidence": [], "grounding": {},
+            meta |= {"route": route.model_dump(mode="json"), "steps": [], "evidence": [], "grounding": {}, "replans": [],
+                     "usage": usage.totals(),
                      "personality_llm_merge": False, "latency_ms": int((time.perf_counter() - t0) * 1000)}
             log_event(logger, "request_completed", trace_id=trace_id, status="success", latency_ms=meta["latency_ms"])
             return ChatResponse(answer=answer, status="success", agent=AgentName.ROUTER, agents_invoked=[], metadata=meta)
@@ -263,7 +266,10 @@ class RouterAgent:
         primary = next((r.agent for r in results if r.status in ("success", "escalated")), results[0].agent)
         meta |= {
             "route": route.model_dump(mode="json"),
-            "steps": [StepTrace(agent=r.agent, status=r.status, latency_ms=r.latency_ms, tools=r.tools_used, error=r.error).model_dump(mode="json") for r in results],
+            "steps": [StepTrace(agent=r.agent, status=r.status, latency_ms=r.latency_ms, tools=r.tools_used, error=r.error,
+                                llm_calls=r.usage.get("llm_calls"), tokens_in=r.usage.get("tokens_in"),
+                                tokens_out=r.usage.get("tokens_out")).model_dump(mode="json") for r in results],
+            "usage": usage.totals(),
             "personality_llm_merge": merged_with_llm,
             "latency_ms": int((time.perf_counter() - t0) * 1000),
         }

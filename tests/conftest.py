@@ -41,9 +41,12 @@ class FakeLLM:
         self.planner_tools = planner_tools
 
     async def chat(self, system: str, user: str, *, json_mode: bool = False, max_tokens: int | None = None) -> str:
+        from app.services import usage
         self.calls.append({"system": system, "user": user, "json_mode": json_mode})
         if self.fail:
+            usage.record(self.provider, self.model, None, None, 0, ok=False)
             raise LLMError("fake outage")
+        usage.record(self.provider, self.model, len(system + user) // 4, 10, 1)  # deterministic fake accounting
         if system == ROUTER_SYSTEM:
             if self.router_raw is not None:
                 return self.router_raw

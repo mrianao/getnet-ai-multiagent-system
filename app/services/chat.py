@@ -11,11 +11,12 @@ BLOCKED_PLACEHOLDER = "[message blocked by guardrails]"
 
 
 class ChatService:
-    def __init__(self, router, conversations, history_window: int = 6, tickets=None):
+    def __init__(self, router, conversations, history_window: int = 6, tickets=None, traces=None):
         self.router = router
         self.conversations = conversations
         self.history_window = history_window
         self.tickets = tickets
+        self.traces = traces
 
     def _conversation(self, req: ChatRequest, principal: Principal) -> dict:
         if req.conversation_id:
@@ -48,6 +49,8 @@ class ChatService:
                           "handoff_ticket": resp.metadata.get("handoff_ticket")}},
         ], title=None if blocked else user_content[:80])
         resp.conversation_id = conv["id"]
+        if self.traces:
+            self.traces.record(resp, conv["id"], principal.merchant_id)
         return resp
 
     def _hold_for_human(self, conv: dict, message: str) -> ChatResponse:

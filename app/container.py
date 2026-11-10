@@ -21,6 +21,7 @@ from app.services.llm import LLMClient, build_llm
 from app.state.conversations import ConversationStore
 from app.state.db import Database
 from app.state.tickets import TicketStore
+from app.state.traces import TraceStore
 from app.tools.customer import CUSTOMERS
 from app.tools.web import USER_AGENT, WebTools
 
@@ -39,6 +40,7 @@ class Container:
     conversations: ConversationStore
     chat: ChatService
     tickets: TicketStore
+    traces: TraceStore
 
 
 def build_container(settings: Settings, *, llm: LLMClient | None = None, embedder: Embedder | None = None,
@@ -65,5 +67,6 @@ def build_container(settings: Settings, *, llm: LLMClient | None = None, embedde
     }
     router = RouterAgent(llm, agents, Personality(llm), replan_budget_s=settings.replan_budget_s)
     tokens = TokenStore(db, known_merchants=set(CUSTOMERS))
-    chat = ChatService(router, conversations, settings.history_window, tickets)
-    return Container(settings, llm, store, http, router, db, tokens, conversations, chat, tickets)
+    traces = TraceStore(db)
+    chat = ChatService(router, conversations, settings.history_window, tickets, traces)
+    return Container(settings, llm, store, http, router, db, tokens, conversations, chat, tickets, traces)

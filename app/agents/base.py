@@ -7,6 +7,7 @@ import time
 from abc import ABC, abstractmethod
 
 from app.models.schemas import AgentName, AgentResult, AgentTask
+from app.services import usage
 from app.services.observability import log_event
 
 logger = logging.getLogger("agents")
@@ -17,12 +18,14 @@ class BaseAgent(ABC):
 
     async def run(self, task: AgentTask) -> AgentResult:
         start = time.perf_counter()
+        mark = usage.mark()
         try:
             result = await self._run(task)
         except Exception as e:  # noqa: BLE001 — isolate agent failures from the orchestration
             logger.exception("agent failure", extra={"extra_fields": {"agent": self.name.value, "trace_id": task.trace_id}})
             result = AgentResult(agent=self.name, status="error", error=f"{type(e).__name__}: {e}", confidence=0.0)
         result.latency_ms = int((time.perf_counter() - start) * 1000)
+        result.usage = usage.totals(mark)
         log_event(logger, "agent_completed", trace_id=task.trace_id, agent=self.name.value, status=result.status,
                   tools=result.tools_used, latency_ms=result.latency_ms, confidence=result.confidence)
         return result

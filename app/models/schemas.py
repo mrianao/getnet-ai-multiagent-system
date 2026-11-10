@@ -57,6 +57,9 @@ class StepTrace(BaseModel):
     latency_ms: int
     tools: list[str] = []
     error: str | None = None
+    llm_calls: int | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
 
 
 class RouteDecision(BaseModel):
@@ -87,6 +90,7 @@ class AgentResult(BaseModel):
     confidence: float = 1.0
     latency_ms: int = 0
     error: str | None = None
+    usage: dict[str, Any] = {}
 
 
 class AgentTask(BaseModel):

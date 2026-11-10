@@ -11,7 +11,11 @@ import logging
 import re
 from typing import Any, Protocol
 
+import time
+
 import httpx
+
+from app.services import usage
 
 from app.config import Settings
 
@@ -50,12 +54,19 @@ class OpenAICompatibleLLM:
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
+        t0 = time.perf_counter()
         try:
             r = await self._client.post("/chat/completions", json=body)
             r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"].strip()
+            data = r.json()
+            text = data["choices"][0]["message"]["content"].strip()
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as e:
+            usage.record(self.provider, self.model, None, None, int((time.perf_counter() - t0) * 1000), ok=False)
             raise LLMError(f"{self.provider} call failed: {type(e).__name__}: {e}") from e
+        u = data.get("usage") or {}
+        usage.record(self.provider, self.model, u.get("prompt_tokens"), u.get("completion_tokens"),
+                     int((time.perf_counter() - t0) * 1000))
+        return text
 
     async def ping(self) -> bool:
         try:
@@ -92,6 +103,7 @@ class AnthropicLLM:
     async def chat(self, system: str, user: str, *, json_mode: bool = False, max_tokens: int | None = None) -> str:
         import anthropic
 
+        t0 = time.perf_counter()
         try:
             response = await self._client.messages.create(
                 model=self.model,
@@ -100,7 +112,11 @@ class AnthropicLLM:
                 messages=[{"role": "user", "content": user}],
             )
         except anthropic.APIError as e:
+            usage.record(self.provider, self.model, None, None, int((time.perf_counter() - t0) * 1000), ok=False)
             raise LLMError(f"{self.provider} call failed: {type(e).__name__}: {e}") from e
+        u = getattr(response, "usage", None)
+        usage.record(self.provider, self.model, getattr(u, "input_tokens", None), getattr(u, "output_tokens", None),
+                     int((time.perf_counter() - t0) * 1000))
         if response.stop_reason == "refusal":
             raise LLMError(f"{self.provider} declined the request")
         text = "".join(block.text for block in response.content if block.type == "text").strip()

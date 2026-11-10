@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -88,6 +88,18 @@ def create_app(container: Container | None = None) -> FastAPI:
         llm_ok = await c.llm.ping() if hasattr(c.llm, "ping") else True
         return {"status": "ok", "llm": {"provider": c.llm.provider, "model": c.llm.model, "reachable": llm_ok},
                 "vector_store": {"collection": c.settings.chroma_collection, "chunks": c.store.count()}}
+
+    # ---------------- observability (operator role: metrics can reveal usage patterns) ----------------
+    @app.get("/metrics", response_class=PlainTextResponse)
+    async def metrics(request: Request, _: Principal = Depends(require_operator)) -> str:
+        return request.app.state.container.traces.prometheus()
+
+    @app.get("/operator/traces/{trace_id}")
+    async def get_trace(trace_id: str, request: Request, _: Principal = Depends(require_operator)) -> dict:
+        t = request.app.state.container.traces.get(trace_id)
+        if t is None:
+            raise HTTPException(status_code=404, detail="Trace not found")
+        return t
 
     # ---------------- operator (human-in-the-loop) ----------------
     @app.get("/operator/tickets")
