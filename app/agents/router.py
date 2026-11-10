@@ -108,6 +108,20 @@ def is_followup(message: str, history: list[dict] | None) -> bool:
     return (words <= 6 and not explicit) or (bool(_FOLLOWUP_LEAD.match(message)) and words <= 14)
 
 
+_ANSWERISH = re.compile(r"\b(i couldn'?t|i could not|i can'?t|can you please|please (check|contact)|according to|"
+                        r"n[aã]o encontrei|verifiquei|recomendo|i recommend|you can|voc[eê] pode)\b", re.I)
+
+
+def _is_request(rewrite: str, last_bot: str) -> bool:
+    """Reject rewrites that answer instead of restating the merchant's request (observed in eval mt03)."""
+    from app.rag.hybrid import tokenize
+
+    rw, bot = set(tokenize(rewrite)), set(tokenize(last_bot))
+    if rw and bot and len(rw & bot) / len(rw) >= 0.6:
+        return False  # mostly copied from the assistant's previous answer
+    return not _ANSWERISH.search(rewrite)
+
+
 def classify_rules(message: str) -> RouteDecision:
     if _SMALLTALK.match(message):
         intent, reason = Intent.SMALLTALK, "greeting / thanks / goodbye"
@@ -170,7 +184,15 @@ class RouterAgent:
                 raw = await self.llm.chat(ROUTER_SYSTEM, message, json_mode=True, max_tokens=60)
                 data = parse_json(raw)
                 intent = Intent(data["intent"])
-                return RouteDecision(intent=intent, agents=PLANS[intent], reason=str(data.get("reason", ""))[:200], method="llm")
+                reason = str(data.get("reason", ""))[:200]
+                # Code validates the LLM: "customer_account" needs an account-data signal. Observed failure
+                # (eval pt02/pt06): Portuguese product questions mentioning selling/receiving were sent to the
+                # account agent. Without such a signal and with Getnet product vocabulary → product_info.
+                if intent == Intent.CUSTOMER_ACCOUNT and not (_ACCOUNT.search(message) or _ACCOUNT_DATA.search(message)) \
+                        and _GETNET.search(message) and not (_DEVICE.search(message) and _PROBLEM.search(message)):
+                    return RouteDecision(intent=Intent.PRODUCT_INFO, agents=PLANS[Intent.PRODUCT_INFO], method="llm",
+                                         reason=f"llm said customer_account without account-data signal; corrected ({reason})")
+                return RouteDecision(intent=intent, agents=PLANS[intent], reason=reason, method="llm")
             except (LLMError, ValueError, KeyError, TypeError, ValidationError) as e:
                 logger.info("LLM routing failed, using rules: %s", e)
         return classify_rules(message)
@@ -182,12 +204,15 @@ class RouterAgent:
             return message, info
         info["followup"] = True
         last_user = next((h["content"] for h in reversed(history) if h["role"] == "user"), "")
-        convo = " | ".join(f"{h['role']}: {h['content'][:300]}" for h in history[-4:])
+        last_bot = next((h["content"] for h in reversed(history) if h["role"] in ("assistant", "operator")), "")
+        # the merchant's own turns carry the topic; the assistant's answer is only a short hint
+        convo = " | ".join(f"{h['role']}: {h['content'][:300] if h['role'] == 'user' else h['content'][:150]}"
+                           for h in history[-4:])
         try:
             raw = await self.llm.chat(REWRITE_SYSTEM, f"Conversation: {convo}\nFollow-up: {message}", json_mode=True,
                                       max_tokens=120)
             standalone = str(parse_json(raw).get("standalone", "")).strip()
-            if 3 <= len(standalone) <= 400 and check_input(standalone).allowed:
+            if 3 <= len(standalone) <= 400 and check_input(standalone).allowed and _is_request(standalone, last_bot):
                 info["rewrite_method"] = "llm"
                 info["standalone_message"] = standalone
                 return standalone, info

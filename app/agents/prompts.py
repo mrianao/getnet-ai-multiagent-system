@@ -77,7 +77,8 @@ REWRITE_SYSTEM = """You rewrite a merchant's follow-up message into ONE self-con
 Rules:
 - Keep the merchant's intent, language (Portuguese or English) and first-person voice.
 - Resolve references ("it", "that one", "é a Smart", "and today?") using the conversation.
-- Do NOT answer the question. Do NOT add facts that are not in the conversation.
+- The result must be a question or request FROM the merchant (e.g. "How many installments does the Getnet crediário allow?").
+- Do NOT answer it, do NOT copy the assistant's reply, do NOT add facts that are not in the conversation.
 Return ONLY JSON: {"standalone": "<rewritten message>"}
 
 Example:

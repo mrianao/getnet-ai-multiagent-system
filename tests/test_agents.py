@@ -59,13 +59,19 @@ async def test_escalation_agent_creates_ticket(container):
     assert container.conversations.get_any(stored["conversation_id"])["status"] == "awaiting_human"
 
 
-async def test_personality_single_vs_merge(container):
+async def test_personality_single_vs_structured_composition(container):
     p = container.router.personality
     one = [AgentResult(agent=A.KNOWLEDGE, answer="only")]
     assert await p.compose("q", one) == ("only", False)
-    two = one + [AgentResult(agent=A.CUSTOMER_SUPPORT, answer="data")]
-    merged, used = await p.compose("q", two)
-    assert used is True and "only" in merged and "data" in merged
+    # multi-agent: deterministic composition — the account diagnosis can never be dropped (eval pdf05)
+    two = [AgentResult(agent=A.KNOWLEDGE, answer="steps [1]"), AgentResult(agent=A.CUSTOMER_SUPPORT, answer="T-002 offline")]
+    merged, used = await p.compose("My machine won't connect", two)
+    assert used is False and merged.index("T-002 offline") < merged.index("steps [1]")
+    assert "**Your account**" in merged and "**Official Getnet guidance**" in merged
+    pt, _ = await p.compose("Minha maquininha não conecta", two)
+    assert "**Sua conta**" in pt
+    legacy, used_llm = await p.merge_with_llm("q", two)  # v1 path still available for larger models
+    assert used_llm is True and "T-002" in legacy
 
 
 def test_clean_answer_strips_meta_and_signoff():
