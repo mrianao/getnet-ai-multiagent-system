@@ -317,7 +317,7 @@ python -m pytest -q
 python -m pytest --cov=app --cov-report=term-missing
 ```
 
-Current result: see [§20](#20-semantic-evaluation) and [`docs/evaluation.md`](docs/evaluation.md) — <<TESTS>>.
+Current result: see [§20](#20-semantic-evaluation) and [`docs/evaluation.md`](docs/evaluation.md) — **168 passed, 0 skipped, 92 % line coverage of `app/`** (offline).
 
 ### Testing strategy
 
@@ -657,7 +657,26 @@ tickets, required-fact recall, forbidden claims, citation validity, retrieval hi
 groundedness (from the exact evidence of each answer) and latency. Results, the baseline of the
 original code, method and limitations: **[`docs/evaluation.md`](docs/evaluation.md)**.
 
-<<EVAL_SUMMARY>>
+Final measurement (run 4, real `llama3.2:3b`, same dataset and harness for both columns):
+
+| Metric | Original code | v2 |
+|---|---|---|
+| Routing accuracy | 0.81 | **1.00** |
+| Expected status (blocked / small talk / escalated) | 0.50 | **1.00** |
+| Cross-tenant `user_id` override | 200 (data leaked) | **403** |
+| Multi-turn "É a Smart." follow-up | wrong intent | **troubleshooting** |
+| Citation validity (RAG) | 0.77 | **0.92** |
+| Retrieval precision@k / forbidden-URL rate | 0.72 / 0.08 | **0.82 / 0.00** |
+| Required-fact recall | 0.75 | 0.78 |
+| All required facts present | 0.70 | 0.70 |
+
+Fact recall barely moved: the remaining misses are model-level omissions and one cross-lingual
+retrieval miss, documented in [`docs/evaluation.md`](docs/evaluation.md) with every per-turn result.
+Human labels are pending (rubric in [`eval/HUMAN_REVIEW.md`](eval/HUMAN_REVIEW.md)).
+
+| | |
+|---|---|
+| ![Multi-turn conversation with technical details](docs/images/ui-multiturn.png) | ![Operator reply delivered to the merchant](docs/images/ui-handoff.png) |
 
 ---
 

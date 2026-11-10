@@ -84,7 +84,7 @@ Legend: **T** offline test · **E** real-model evaluation (`docs/evaluation.md`)
 | Knowledge: RAG grounded in the Getnet website + web search | + retrieval precision, + evidence, + grounding policy | T `test_rag.py`, `test_grounding.py`; E | PASS |
 | Customer Support: user data, ≥ 2 tools | Identity now from the authenticated principal | T `test_tools.py`, `test_auth.py`; E | PASS |
 | `POST` endpoint with `{message, user_id}` | Same payload; bearer token now required; `user_id` must match | T `test_api.py`, `test_auth.py` | PASS |
-| Docker | + state volume, `STATE_DB_PATH` | D (see `docs/evaluation.md` §Docker) | see report |
+| Docker | + state volume, `STATE_DB_PATH` | D: build, 168 tests in image, non-root, healthy, auth, restart persistence (`docs/evaluation.md` §7) | PASS |
 | Testing strategy | + security, memory, HITL, grounding, replanning, observability suites; + semantic evaluation | T; E | PASS |
 | README | Updated for v2 | R | PASS |
 
@@ -111,5 +111,5 @@ Legend: **T** offline test · **E** real-model evaluation (`docs/evaluation.md`)
 | Improvement | Status |
 |---|---|
 | Security headers / CSP on the UI | Implemented (T `test_hitl.py::test_ui_is_served_with_security_headers`) |
-| HTML interface (usability, explicitly requested by the author) | Implemented (browser-tested, see `docs/evaluation.md`) |
+| HTML interface (usability, explicitly requested by the author) | Implemented; 23/23 browser checks against the real backend (`docs/evaluation.md` §7) |
 | IdP (OIDC), rate limiting, OpenTelemetry export, dashboards/alerts, multi-node storage | **Not implemented** — documented as future work |
