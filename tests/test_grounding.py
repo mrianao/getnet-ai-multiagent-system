@@ -157,3 +157,11 @@ def test_no_near_duplicate_chunks_in_context(real_retriever):
     for i in range(len(sets)):
         for j in range(i):
             assert len(sets[i] & sets[j]) / min(len(sets[i]), len(sets[j])) < 0.6
+
+
+def test_scale_error_is_unsupported():
+    """eval pt03: 'R$ 20 mil' (thousand) rendered as 'R$ 20 million' must not pass as '20'."""
+    ev = [{"text": "Acima de R$ 20mil por mês | Get Clássica"}]
+    assert check_grounding("Get Clássica requires above R$ 20 million per month [1].", ev).unsupported_number_claims == 1
+    assert check_grounding("Get Clássica requires above R$ 20 thousand per month [1].", ev).unsupported_number_claims == 0
+    assert check_grounding("Get Clássica requires above R$ 20,000 per month [1].", ev).unsupported_number_claims == 0

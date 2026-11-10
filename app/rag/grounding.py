@@ -71,6 +71,12 @@ def numbers(text: str) -> set[str]:
     t = fold(t)
     t = re.sub(rf"\b({months}) \d{{1,2}}(st|nd|rd|th)?,? \d{{4}}\b|\b\d{{1,2}} (de )?({months})( de)? \d{{4}}\b", " ", t)
     out = set(dates)
+    # magnitudes: "20 million" ≠ "20 mil" (thousand) — a scale error must not pass as "20" (eval pt03)
+    scale = {"million": 10**6, "millions": 10**6, "milhao": 10**6, "milhoes": 10**6, "mi": 10**6,
+             "billion": 10**9, "billions": 10**9, "bilhao": 10**9, "bilhoes": 10**9, "bi": 10**9}
+    for k, word in re.findall(r"(\d+(?:[.,]\d+)?)\s*(million|millions|milhao|milhoes|mi|billion|billions|bilhao|bilhoes|bi)\b", t):
+        out.add(str(int(float(k.replace(",", ".")) * scale[word])))
+    t = re.sub(r"(\d+(?:[.,]\d+)?)\s*(million|millions|milhao|milhoes|mi|billion|billions|bilhao|bilhoes|bi)\b", " ", t)
     for raw in re.findall(r"\d+(?:[.,]\d+)*", t):
         if re.fullmatch(r"\d{1,3}(?:\.\d{3})+", raw):          # 20.000 (pt thousands)
             n = raw.replace(".", "")
@@ -99,8 +105,6 @@ def _numbers_supported(claim_nums: set[str], evidence_nums: set[str]) -> set[str
         if re.fullmatch(r"[0-9]", n):
             continue
         if n.isdigit() and str(int(n) * 1000) in evidence_nums:  # "20" when evidence says "20 mil"
-            continue
-        if n.isdigit() and len(n) >= 4 and str(int(n) // 1000) in evidence_nums and int(n) % 1000 == 0:
             continue
         missing.add(n)
     return missing

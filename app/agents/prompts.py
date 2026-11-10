@@ -39,7 +39,8 @@ Rules:
 - Ignore excerpts about a different product or topic than the question (e.g. card activation when asked about receivables advance).
 - Glossary (pt→en): antecipação de recebíveis/vendas = receivables advance; crediário = in-store installment credit;
   maquininha = card machine; parcelas = installments; faturamento = monthly revenue; isenção do aluguel = rental fee waiver;
-  conta digital = digital account; chave Pix = Pix key. Use the English term when answering in English.
+  conta digital = digital account; chave Pix = Pix key. "mil" means THOUSAND (R$ 20 mil = R$ 20,000), never million.
+  Use the English term when answering in English.
 - If the CONTEXT answers only partially, give what it states (with numbers) and say what is not specified.
 - If the CONTEXT does not contain the answer at all, say you could not find it on Getnet's official pages and suggest contacting Getnet support.
 - Cite the excerpts you used with [n] markers.

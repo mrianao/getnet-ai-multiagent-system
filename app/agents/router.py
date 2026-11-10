@@ -21,6 +21,7 @@ from collections import deque
 from app.agents.base import BaseAgent
 from app.agents.personality import Personality
 from app.agents.prompts import REWRITE_SYSTEM, ROUTER_SYSTEM
+from app.rag.grounding import numbers
 from app.models.schemas import (AgentName, AgentResult, AgentTask, ChatResponse, Intent, RouteDecision, StepTrace)
 from app.services.guardrails import check_input
 from app.services.llm import LLMClient, LLMError, parse_json
@@ -185,10 +186,10 @@ class RouterAgent:
                 data = parse_json(raw)
                 intent = Intent(data["intent"])
                 reason = str(data.get("reason", ""))[:200]
-                # Code validates the LLM: "customer_account" needs an account-data signal. Observed failure
-                # (eval pt02/pt06): Portuguese product questions mentioning selling/receiving were sent to the
-                # account agent. Without such a signal and with Getnet product vocabulary → product_info.
-                if intent == Intent.CUSTOMER_ACCOUNT and not (_ACCOUNT.search(message) or _ACCOUNT_DATA.search(message)) \
+                # Code validates the LLM: "customer_account" needs a SPECIFIC account-data signal (a time reference,
+                # "deposited", "my transactions"…). Observed failures (eval pt02, pt06, pdf04): product questions
+                # mentioning "vender", "receber vendas" or "my sales" were sent to the account agent.
+                if intent == Intent.CUSTOMER_ACCOUNT and not _ACCOUNT_DATA.search(message) \
                         and _GETNET.search(message) and not (_DEVICE.search(message) and _PROBLEM.search(message)):
                     return RouteDecision(intent=Intent.PRODUCT_INFO, agents=PLANS[Intent.PRODUCT_INFO], method="llm",
                                          reason=f"llm said customer_account without account-data signal; corrected ({reason})")
@@ -212,7 +213,9 @@ class RouterAgent:
             raw = await self.llm.chat(REWRITE_SYSTEM, f"Conversation: {convo}\nFollow-up: {message}", json_mode=True,
                                       max_tokens=120)
             standalone = str(parse_json(raw).get("standalone", "")).strip()
-            if 3 <= len(standalone) <= 400 and check_input(standalone).allowed and _is_request(standalone, last_bot):
+            user_text = " ".join(h["content"] for h in history if h["role"] == "user") + " " + message
+            if 3 <= len(standalone) <= 400 and check_input(standalone).allowed and _is_request(standalone, last_bot) \
+                    and not (numbers(standalone) - numbers(user_text)):  # no fact injected by the rewrite (eval mt03)
                 info["rewrite_method"] = "llm"
                 info["standalone_message"] = standalone
                 return standalone, info
