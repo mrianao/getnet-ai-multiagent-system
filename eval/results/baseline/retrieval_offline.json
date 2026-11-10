@@ -1,0 +1,229 @@
+{
+ "configs": [
+  {
+   "name": "current",
+   "kwargs": {
+    "top_k": 5,
+    "min_score": 0.25
+   }
+  }
+ ],
+ "results": {
+  "current": {
+   "n": 12,
+   "hit@1": 0.9167,
+   "hit@k": 1.0,
+   "mrr": 0.9375,
+   "precision@k": 0.7833,
+   "forbidden_url_rate": 0.0833,
+   "dup_rate": 0.1167,
+   "mean_k": 5.0,
+   "rows": [
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 0.6,
+     "forbidden_hits": 0,
+     "dup_rate": 0.0,
+     "id": "pdf01_classica_vs_smart#0",
+     "urls": [
+      "site.getnet.com.br/get-tap/",
+      "site.getnet.com.br/todas-as-maquininhas/",
+      "site.getnet.com.br/todas-as-maquininhas/",
+      "site.getnet.com.br/duvidas/pix-mais-respostas/",
+      "site.getnet.com.br/conta-digital/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 0.8,
+     "forbidden_hits": 0,
+     "dup_rate": 0.0,
+     "id": "pdf04_pix_bank_account#0",
+     "urls": [
+      "site.getnet.com.br/duvidas/pix-mais-respostas/",
+      "www.getnet.net/en/our-solutions/in-person-payments",
+      "site.getnet.com.br/duvidas/get-conta/",
+      "site.getnet.com.br/duvidas/pix-mais-respostas/",
+      "site.getnet.com.br/duvidas/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 0.6,
+     "forbidden_hits": 1,
+     "dup_rate": 0.0,
+     "id": "pdf06_antecipacao#0",
+     "urls": [
+      "site.getnet.com.br/duvidas/antecipacao-de-vendas/",
+      "site.getnet.com.br/duvidas/",
+      "site.getnet.com.br/duvidas/antecipacao-de-vendas/",
+      "www.getnet.net/en/our-solutions/omnichannel",
+      "site.getnet.com.br/duvidas/cartao-getnet/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 0.8,
+     "forbidden_hits": 0,
+     "dup_rate": 0.2,
+     "id": "pdf09_crediario#0",
+     "urls": [
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/duvidas/split-de-pagamento/",
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/duvidas/",
+      "site.getnet.com.br/crediario/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 0.6,
+     "forbidden_hits": 0,
+     "dup_rate": 0.0,
+     "id": "pdf10_whatsapp_link#0",
+     "urls": [
+      "www.getnet.net/en/our-solutions/online-payments",
+      "www.getnet.net/en/our-solutions/in-person-payments",
+      "site.getnet.com.br/get-tap/",
+      "www.getnet.net/en/our-solutions/online-payments",
+      "site.getnet.com.br/getcheckout/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 0.6,
+     "forbidden_hits": 0,
+     "dup_rate": 0.0,
+     "id": "pt01_antecipacao#0",
+     "urls": [
+      "site.getnet.com.br/duvidas/antecipacao-de-vendas/",
+      "site.getnet.com.br/duvidas/",
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/duvidas/",
+      "site.getnet.com.br/crediario/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 1.0,
+     "forbidden_hits": 0,
+     "dup_rate": 0.2,
+     "id": "pt02_crediario#0",
+     "urls": [
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/duvidas/",
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/duvidas/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 1.0,
+     "forbidden_hits": 0,
+     "dup_rate": 0.0,
+     "id": "pt03_classica_smart#0",
+     "urls": [
+      "site.getnet.com.br/todas-as-maquininhas/",
+      "site.getnet.com.br/todas-as-maquininhas/",
+      "site.getnet.com.br/todas-as-maquininhas/",
+      "site.getnet.com.br/get-tap/",
+      "site.getnet.com.br/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 1.0,
+     "forbidden_hits": 0,
+     "dup_rate": 0.2,
+     "id": "pt06_pix#0",
+     "urls": [
+      "site.getnet.com.br/duvidas/",
+      "site.getnet.com.br/duvidas/pix-mais-respostas/",
+      "site.getnet.com.br/duvidas/",
+      "site.getnet.com.br/duvidas/get-conta/",
+      "site.getnet.com.br/duvidas/pix-mais-respostas/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 1.0,
+     "forbidden_hits": 0,
+     "dup_rate": 0.4,
+     "id": "prod01_smart_fee#0",
+     "urls": [
+      "site.getnet.com.br/todas-as-maquininhas/",
+      "site.getnet.com.br/maquininha/get-smart/",
+      "site.getnet.com.br/maquininha/get-smart/",
+      "site.getnet.com.br/maquininha/aluguel/",
+      "site.getnet.com.br/get-tap/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": false,
+     "hit@k": true,
+     "rr": 0.25,
+     "precision@k": 0.4,
+     "forbidden_hits": 0,
+     "dup_rate": 0.0,
+     "id": "prod02_get_tap#0",
+     "urls": [
+      "site.getnet.com.br/taxas/",
+      "site.getnet.com.br/pix/",
+      "site.getnet.com.br/duvidas/",
+      "site.getnet.com.br/get-tap/",
+      "site.getnet.com.br/duvidas/get-tap/"
+     ]
+    },
+    {
+     "k": 5,
+     "hit@1": true,
+     "hit@k": true,
+     "rr": 1.0,
+     "precision@k": 1.0,
+     "forbidden_hits": 0,
+     "dup_rate": 0.4,
+     "id": "mt03_crediario_followup#0",
+     "urls": [
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/crediario/",
+      "site.getnet.com.br/duvidas/"
+     ]
+    }
+   ]
+  }
+ }
+}
