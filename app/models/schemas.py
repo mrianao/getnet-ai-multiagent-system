@@ -20,6 +20,8 @@ class Intent(str, Enum):
     CUSTOMER_ACCOUNT = "customer_account"
     TROUBLESHOOTING = "troubleshooting"
     HUMAN = "human"
+    SMALLTALK = "smalltalk"          # greetings / thanks — answered by the router, no agent, no LLM
+    OUT_OF_SCOPE = "out_of_scope"    # tasks the assistant does not perform (creative writing, code…)
 
 
 Status = Literal["success", "partial", "escalated", "blocked", "error"]
@@ -59,7 +61,7 @@ class StepTrace(BaseModel):
 
 class RouteDecision(BaseModel):
     intent: Intent
-    agents: list[AgentName] = Field(..., min_length=1)
+    agents: list[AgentName] = Field(default_factory=list)  # empty for smalltalk / out_of_scope
     reason: str = ""
     method: Literal["llm", "rules"] = "rules"
 

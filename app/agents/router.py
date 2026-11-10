@@ -32,7 +32,39 @@ PLANS: dict[Intent, list[AgentName]] = {
     Intent.CUSTOMER_ACCOUNT: [AgentName.CUSTOMER_SUPPORT],
     Intent.TROUBLESHOOTING: [AgentName.CUSTOMER_SUPPORT, AgentName.KNOWLEDGE],
     Intent.HUMAN: [AgentName.ESCALATION],
+    Intent.SMALLTALK: [],
+    Intent.OUT_OF_SCOPE: [],
 }
+
+_SMALLTALK = re.compile(
+    r"^\s*(oi+|ol[aá]|hi+|hello|hey|e a[ií]|bom dia|boa tarde|boa noite|good (morning|afternoon|evening)|"
+    r"obrigad[oa]|muito obrigad[oa]|valeu|thanks?( you)?|thank you( so much)?|tchau|bye|goodbye|at[eé] (logo|mais)|"
+    r"ok(ay)?|beleza|perfeito|great|tudo bem\??|how are you\??)([\s,!.?]+(getnet|obrigad[oa]|thanks|tudo bem|:\)|!+))*[\s!.?:)]*$",
+    re.I)
+_THANKS = re.compile(r"obrigad|valeu|thank", re.I)
+_BYE = re.compile(r"tchau|bye|at[eé] (logo|mais)", re.I)
+_OUT_OF_SCOPE = re.compile(
+    r"^\s*(please\s+)?(write|compose|create|generate|escreva|crie|componha|fa[cç]a)\s+(me\s+|para mim\s+)?(a|an|um|uma)?\s*"
+    r"(poem|song|story|essay|joke|poema|m[uú]sica|can[cç][aã]o|hist[oó]ria|reda[cç][aã]o|piada|code|program|script|c[oó]digo)"
+    r"|\b(homework|li[cç][aã]o de casa|my essay)\b", re.I)
+
+
+def smalltalk_reply(message: str) -> str:
+    pt = bool(re.search(r"ol[aá]|oi|obrigad|valeu|tchau|bom dia|boa (tarde|noite)|tudo bem|beleza|at[eé]", message, re.I))
+    if _THANKS.search(message):
+        return ("De nada! Se precisar de algo sobre produtos Getnet, suas vendas ou sua maquininha, é só chamar."
+                if pt else "You're welcome! If you need anything about Getnet products, your sales or your card machine, just ask.")
+    if _BYE.search(message):
+        return "Até logo! Estou por aqui quando precisar." if pt else "Goodbye! I'm here whenever you need me."
+    return ("Olá! Sou o assistente virtual da Getnet. Posso ajudar com produtos e serviços Getnet, com suas vendas e "
+            "recebimentos, ou com problemas na sua maquininha. Como posso ajudar?" if pt else
+            "Hi! I'm Getnet's virtual assistant. I can help with Getnet products and services, your sales and settlements, "
+            "or issues with your card machine. How can I help?")
+
+
+OUT_OF_SCOPE_REPLY = ("That is outside what I can help with. I can answer questions about Getnet products and services, "
+                      "check your sales, settlements and card machines, or look up general information such as weather "
+                      "and exchange rates.")
 
 _HUMAN = re.compile(r"(human|person|attendant|atendente|real agent|talk to (someone|an? agent)|falar com (algu[eé]m|um atendente)|ouvidoria)", re.I)
 _DEVICE = re.compile(r"(card machine|machine|terminal|\bpos\b|maquininha|m[aá]quina)", re.I)
@@ -41,7 +73,9 @@ _ACCOUNT = re.compile(r"\b(my|my own|minhas?|meus?)\b.*\b(sales|sale|money|depos
                       r"|\b(deposited|yesterday'?s sales|vendas de ontem|cair na (minha )?conta)\b", re.I)
 _GENERAL = re.compile(r"(weather|forecast|temperature|exchange rate|c[aâ]mbio|cota[cç][aã]o|previs[aã]o do tempo|news|not[ií]cias)", re.I)
 _PRODUCT_Q = re.compile(r"^\s*(do i need|can i|how does|how do|how many|what is|what's the difference|what are|is it possible|preciso|posso|como funciona|quantas?)\b", re.I)
-_GETNET = re.compile(r"getnet|pix|link|maquininha|crediário|crediario|antecipa|get smart|get cl[aá]ssica|receivables", re.I)
+_GETNET = re.compile(r"getnet|pix|link|maquininha|crediário|crediario|antecipa|get smart|get cl[aá]ssica|receivables|"
+                     r"\bget (tap|mini|conta|checkout|smart)\b|card machine|\bpos\b|\btef\b|maquin|boleto|"
+                     r"\b(fee|fees|taxa|taxas|tarifa|plano|plan|settlement|liquida|recebimento|parcel|installment)", re.I)
 
 
 _FOLLOWUP_LEAD = re.compile(
@@ -65,7 +99,11 @@ def is_followup(message: str, history: list[dict] | None) -> bool:
 
 
 def classify_rules(message: str) -> RouteDecision:
-    if _HUMAN.search(message):
+    if _SMALLTALK.match(message):
+        intent, reason = Intent.SMALLTALK, "greeting / thanks / goodbye"
+    elif _OUT_OF_SCOPE.search(message):
+        intent, reason = Intent.OUT_OF_SCOPE, "task the assistant does not perform"
+    elif _HUMAN.search(message):
         intent, reason = Intent.HUMAN, "explicit human request"
     elif _DEVICE.search(message) and _PROBLEM.search(message):
         intent, reason = Intent.TROUBLESHOOTING, "problem reported with merchant's machine/transactions"
@@ -75,6 +113,8 @@ def classify_rules(message: str) -> RouteDecision:
         intent, reason = Intent.CUSTOMER_ACCOUNT, "question about merchant's own account data"
     elif _GENERAL.search(message) and not _GETNET.search(message):
         intent, reason = Intent.GENERAL, "general-purpose question (not about Getnet)"
+    elif not _GETNET.search(message) and not _DEVICE.search(message) and len(message.split()) >= 4 and "?" in message:
+        intent, reason = Intent.GENERAL, "question without Getnet/product vocabulary: web search"
     else:
         intent, reason = Intent.PRODUCT_INFO, DEFAULT_REASON
     return RouteDecision(intent=intent, agents=PLANS[intent], reason=reason, method="rules")
@@ -84,12 +124,14 @@ class RouterAgent:
     name = AgentName.ROUTER
 
     def __init__(self, llm: LLMClient, agents: dict[AgentName, BaseAgent], personality: Personality,
-                 escalation_threshold: float = 0.0, use_llm_routing: bool = True):
+                 use_llm_routing: bool = True):
         self.llm, self.agents, self.personality = llm, agents, personality
-        self.escalation_threshold = escalation_threshold
         self.use_llm_routing = use_llm_routing
 
     async def classify(self, message: str) -> RouteDecision:
+        pre = classify_rules(message)
+        if pre.intent in (Intent.SMALLTALK, Intent.OUT_OF_SCOPE):
+            return pre  # deterministic, no LLM call needed
         if self.use_llm_routing:
             try:
                 raw = await self.llm.chat(ROUTER_SYSTEM, message, json_mode=True, max_tokens=60)
@@ -149,14 +191,18 @@ class RouterAgent:
                              conversation_id=conversation_id, history=list(history or []))
 
         results: list[AgentResult] = []
+        if not route.agents:  # smalltalk / out_of_scope: answered by the router, never escalated
+            answer = smalltalk_reply(standalone) if route.intent == Intent.SMALLTALK else OUT_OF_SCOPE_REPLY
+            meta |= {"route": route.model_dump(mode="json"), "steps": [], "evidence": [], "grounding": {},
+                     "personality_llm_merge": False, "latency_ms": int((time.perf_counter() - t0) * 1000)}
+            log_event(logger, "request_completed", trace_id=trace_id, status="success", latency_ms=meta["latency_ms"])
+            return ChatResponse(answer=answer, status="success", agent=AgentName.ROUTER, agents_invoked=[], metadata=meta)
         for agent_name in route.agents:
             results.append(await self.agents[agent_name].run(new_task()))
 
-        # Human handoff when nothing useful could be produced (BR-03)
-        needs_handoff = route.intent != Intent.HUMAN and (
-            all(r.status == "error" for r in results)
-            or (route.intent == Intent.PRODUCT_INFO and max(r.confidence for r in results) <= self.escalation_threshold)
-        )
+        # Human handoff ONLY when justified (BR-03): explicit request (HUMAN plan) or every agent failed.
+        # Missing knowledge (zero retrieval hits) is answered honestly with an offer of a human — no auto-ticket.
+        needs_handoff = route.intent != Intent.HUMAN and all(r.status == "error" for r in results)
         if needs_handoff and AgentName.ESCALATION in self.agents:
             results.append(await self.agents[AgentName.ESCALATION].run(new_task()))
 

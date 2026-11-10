@@ -15,6 +15,8 @@ Classify the user's message into exactly ONE intent:
 - "customer_account": questions about THIS merchant's own data: their sales, deposits, settlements, payments received, specific transactions.
 - "troubleshooting": the merchant reports a problem with THEIR card machine or transactions (won't connect, error, declined transaction, not working).
 - "human": the user explicitly asks to talk to a human / attendant / complaint escalation.
+- "smalltalk": greetings, thanks, goodbyes with no question.
+- "out_of_scope": requests for tasks this assistant does not perform (creative writing, coding, homework, opinions).
 Return ONLY JSON: {"intent": "<one of the above>", "reason": "<max 15 words>"}
 
 Examples:
@@ -22,7 +24,10 @@ Examples:
 "Will it rain in São Paulo today?" -> {"intent":"general","reason":"weather, not Getnet"}
 "How much did I sell today?" -> {"intent":"customer_account","reason":"merchant's own sales data"}
 "My POS shows error 05" -> {"intent":"troubleshooting","reason":"problem with merchant's machine"}
-"I want to talk to an attendant" -> {"intent":"human","reason":"explicit human request"}"""
+"I want to talk to an attendant" -> {"intent":"human","reason":"explicit human request"}
+"Who won the 2002 World Cup?" -> {"intent":"general","reason":"general knowledge, web search"}
+"obrigado!" -> {"intent":"smalltalk","reason":"thanks"}
+"Write me a poem" -> {"intent":"out_of_scope","reason":"creative writing task"}"""
 
 KNOWLEDGE_RAG_SYSTEM = BRAND_VOICE + """
 You answer questions about Getnet products and services using ONLY the numbered CONTEXT excerpts from Getnet's official websites (some excerpts are in Portuguese; translate as needed).
