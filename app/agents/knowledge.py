@@ -39,7 +39,7 @@ class KnowledgeAgent(BaseAgent):
         # decline reason). The free-text support answer pulled unrelated "cartão" FAQ chunks into troubleshooting.
         diag = [d for r in task.context for d in r.data.get("diagnosis", [])]
         query = f"{task.message}\n{' '.join(diag)[:200]}" if diag else (task.message if not ctx else f"{task.message}\n{ctx[:300]}")
-        hits = self.retriever.retrieve(query)
+        hits, dropped = product_topic_filter(task.message, self.retriever.retrieve(query))
         evidence = [{"type": "rag", "rank": i, "chunk_id": h["id"], "url": h["url"], "title": h["title"], "text": h["text"],
                      "score": h["score"], "bm25": h.get("bm25"), "rrf": h.get("rrf")} for i, h in enumerate(hits, 1)]
         if not hits:
@@ -53,11 +53,13 @@ class KnowledgeAgent(BaseAgent):
             blocks.append(f"[{i}] (source: {h['title']} — {h['url']})\n{h['text']}")
             sources.append(Source(title=h["title"], url=h["url"], type="rag", score=h["score"]))
         user = "CONTEXT:\n" + "\n\n".join(blocks)
-        if ctx:
+        if diag:  # structured findings only: with the support agent's prose the model copied/contradicted it
+            user += "\n\nCUSTOMER CONTEXT (verified account findings):\n- " + "\n- ".join(diag)
+        elif ctx:
             user += f"\n\nCUSTOMER CONTEXT:\n{ctx}"
         user += f"\n\nQUESTION: {task.message}" + language_instruction(task.message)
         confidence = hits[0]["score"]
-        data = {"retrieved": len(hits), "evidence": evidence, "query": query}
+        data = {"retrieved": len(hits), "evidence": evidence, "query": query, "dropped_off_product": dropped}
         try:
             raw = clean_answer(await self.llm.chat(KNOWLEDGE_RAG_SYSTEM, user))
         except LLMError as e:
@@ -145,3 +147,37 @@ def _extractive(hits: list[dict], lead: str) -> str:
     """Deterministic fallback: quote the two most relevant official excerpts with citations."""
     quotes = "\n".join(f"[{i}] «{h['text'][:300].strip()}»" for i, h in enumerate(hits[:2], 1))
     return f"{lead} Most relevant excerpts from Getnet's official website:\n{quotes}"
+
+
+# Product pages of the corpus. A chunk from one product's page must not answer a question about another
+# product: observed failures were card-activation steps (cartao-getnet) in an antecipação answer and
+# Crediário conditions ("2 dias úteis, sem custo de antecipação") presented as antecipação conditions.
+PRODUCT_TOPICS = {
+    "antecipacao": (re.compile(r"antecipa|receivables? advance", re.I), ("antecipacao",)),
+    "crediario": (re.compile(r"credi[aá]rio|installment credit", re.I), ("crediario",)),
+    "pix": (re.compile(r"\bpix\b", re.I), ("/pix",)),
+    "link": (re.compile(r"link de pagamento|payment link|whatsapp", re.I), ("link-de-pagamento", "pagamentos-pelo-whatsapp")),
+    "tap": (re.compile(r"get tap|tap to pay", re.I), ("get-tap",)),
+    "cartao": (re.compile(r"cart[aã]o getnet|getnet card|ativar o cart|card activation", re.I), ("cartao-getnet",)),
+    "conta": (re.compile(r"get conta|\bconta\b|\baccount\b", re.I), ("get-conta", "conta-digital")),
+    "tef": (re.compile(r"\btef\b", re.I), ("/tef",)),
+}
+
+
+def _page_topics(url: str) -> set[str]:
+    return {name for name, (_, slugs) in PRODUCT_TOPICS.items() if any(sl in url for sl in slugs)}
+
+
+def product_topic_filter(question: str, hits: list[dict]) -> tuple[list[dict], list[str]]:
+    """Drop chunks from a DIFFERENT product's page when the question names specific products.
+
+    Generic pages (home, FAQ hub, machines) are kept. Never empties the evidence: if every hit would be
+    dropped, the original list is returned.
+    """
+    asked = {name for name, (rx, _) in PRODUCT_TOPICS.items() if rx.search(question)}
+    if not asked:
+        return hits, []
+    kept = [h for h in hits if not (_page_topics(h["url"]) and not (_page_topics(h["url"]) & asked))]
+    if not kept:
+        return hits, []
+    return kept, [h["url"] for h in hits if h not in kept]

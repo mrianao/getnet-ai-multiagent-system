@@ -49,7 +49,9 @@ async def test_multi_agent_plan_propagates_context(make_container):
     assert r.agents_invoked == [A.CUSTOMER_SUPPORT, A.KNOWLEDGE]
     # The Knowledge agent's prompt must contain the Customer Support result (inter-agent data flow)
     rag_call = next(c_ for c_ in llm.calls if "CONTEXT:" in c_["user"] and "CUSTOMER CONTEXT" in c_["user"])
-    assert "[customer_support]" in rag_call["user"]
+    # v2.1: the verified diagnosis from the support tools (not the support agent's prose) is propagated
+    assert "No network signal (chip registration failed)" in rag_call["user"]
+    assert "verified account findings" in rag_call["user"]
     assert r.metadata["personality_llm_merge"] is False  # v2: deterministic composition
     assert r.answer.index("Your account") < r.answer.index("Official Getnet guidance")
 

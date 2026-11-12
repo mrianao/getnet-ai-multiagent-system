@@ -165,3 +165,21 @@ def test_scale_error_is_unsupported():
     assert check_grounding("Get Clássica requires above R$ 20 million per month [1].", ev).unsupported_number_claims == 1
     assert check_grounding("Get Clássica requires above R$ 20 thousand per month [1].", ev).unsupported_number_claims == 0
     assert check_grounding("Get Clássica requires above R$ 20,000 per month [1].", ev).unsupported_number_claims == 0
+
+
+def test_product_topic_filter_drops_other_product_pages():
+    """Manual test 2026-11-12: Crediário conditions were presented as antecipação conditions."""
+    from app.agents.knowledge import product_topic_filter
+    R = "https://site.getnet.com.br"
+    hits = [{"url": f"{R}/duvidas/antecipacao-de-vendas/"}, {"url": f"{R}/duvidas/"}, {"url": f"{R}/crediario/"},
+            {"url": f"{R}/duvidas/cartao-getnet/"}]
+    kept, dropped = product_topic_filter("Como funciona a antecipação de recebíveis na Getnet?", hits)
+    assert [h["url"] for h in kept] == [f"{R}/duvidas/antecipacao-de-vendas/", f"{R}/duvidas/"]
+    assert dropped == [f"{R}/crediario/", f"{R}/duvidas/cartao-getnet/"]
+    # no product named → unchanged; never empties the evidence
+    assert product_topic_filter("Quais são as taxas da Getnet?", hits) == (hits, [])
+    only_other = [{"url": f"{R}/crediario/"}]
+    assert product_topic_filter("Como funciona a antecipação?", only_other) == (only_other, [])
+    # an account question keeps the digital-account pages
+    acc = [{"url": f"{R}/duvidas/get-conta/"}, {"url": f"{R}/duvidas/pix/"}]
+    assert product_topic_filter("Preciso de conta bancária para receber pelo Pix?", acc)[1] == []
