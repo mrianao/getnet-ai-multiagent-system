@@ -66,3 +66,50 @@ real index and real APIs ([`live-validation.md`](live-validation.md)), **D** = D
   AI-assisted build. Environment setup (network allow-listing, GitHub access, local LLM download)
   and the live-validation runs took additional wall-clock time beyond the core implementation.
 - Customer data is **simulated** (disclosed in every response and in `app/tools/customer.py`).
+
+---
+
+# v2 traceability (remediation, branch `remediation`)
+
+The v1 matrix above is unchanged: it documents that the **original submission already satisfied
+every mandatory requirement of the PDF**. This section separates what v2 adds, by origin.
+Legend: **T** offline test · **E** real-model evaluation (`docs/evaluation.md`) · **D** Docker run · **R** review.
+
+## A. Original mandatory requirements (PDF) — regression status in v2
+
+| PDF requirement | v2 impact | Verification | Status |
+|---|---|---|---|
+| ≥ 3 agents + communication mechanism | Unchanged contract; `AgentTask` gained `conversation_id`/`history` (additive) | T `test_router.py`, `test_agents.py` | PASS |
+| Router: entry point, agent or sequence, data flow | + follow-up resolution, + bounded replanning | T `test_router.py`, `test_replanning.py`, `test_scenarios.py`; E routing accuracy | PASS |
+| Knowledge: RAG grounded in the Getnet website + web search | + retrieval precision, + evidence, + grounding policy | T `test_rag.py`, `test_grounding.py`; E | PASS |
+| Customer Support: user data, ≥ 2 tools | Identity now from the authenticated principal | T `test_tools.py`, `test_auth.py`; E | PASS |
+| `POST` endpoint with `{message, user_id}` | Same payload; bearer token now required; `user_id` must match | T `test_api.py`, `test_auth.py` | PASS |
+| Docker | + state volume, `STATE_DB_PATH` | D: build, 201 tests in image (v2.1), non-root, healthy, auth, restart persistence (`docs/evaluation.md` §7) | PASS |
+| Testing strategy | + security, memory, HITL, grounding, replanning, observability suites; + semantic evaluation | T; E | PASS |
+| README | Updated for v2 | R | PASS |
+
+## B. Original bonus requirements (PDF)
+
+| Bonus | v1 | v2 | Verification |
+|---|---|---|---|
+| 4th agent requesting human assistance | PARTIAL (in-memory ticket, no operator side) | **Operational HITL**: persistent queue, claim, approve/reply/reject, resume, idempotency | T `test_hitl.py` (10) |
+| Guardrails | PASS (input) | + masking before persistence; blocked input never replayed; rewrite re-checked; no auto-tickets for small talk/out-of-scope | T `test_guardrails.py`, `test_conversations.py`, `test_escalation_behavior.py` |
+| Handoff when the system cannot resolve | PARTIAL (also fired on greetings via the rules path) | Escalation only on explicit request, all-agent failure, or replanned support failure | T `test_escalation_behavior.py`, `test_replanning.py` |
+| Evaluation & observability strategy | PARTIAL (strategy + logs) | Implemented: dataset + harness + baseline/final report; token accounting, persisted traces, `/metrics` | T `test_observability.py`; E |
+
+## C. Evaluator expectations not stated in the PDF
+
+| Expectation (gap) | v2 implementation | Verification |
+|---|---|---|
+| Gap 1 — persistent multi-turn memory | SQLite conversations, owner-scoped, follow-up rewrite, bounded window, restart recovery | T `test_conversations.py`; E multi-turn cases |
+| Gap 2 — authentication & authorization | Hashed bearer tokens, `Principal`, roles, 401/403/404 matrix; v2.1 tenant isolation of cross-merchant requests and outputs | T `test_auth.py`, `test_tenant_isolation.py` (32); E `adv04` (403); real-model attack verification (`docs/evaluation.md` §8) |
+| Gap 4 — semantic correctness measured on evidence | Evidence retained; grounding checks; dataset with facts/forbidden claims; human rubric | T `test_grounding.py`; E |
+| Gap 5 — adaptive replanning | Deterministic bounded supervisor | T `test_replanning.py` |
+
+## D. Production-readiness improvements (beyond both)
+
+| Improvement | Status |
+|---|---|
+| Security headers / CSP on the UI | Implemented (T `test_hitl.py::test_ui_is_served_with_security_headers`) |
+| HTML interface (usability, explicitly requested by the author) | Implemented; 23/23 browser checks against the real backend (`docs/evaluation.md` §7) |
+| IdP (OIDC), rate limiting, OpenTelemetry export, dashboards/alerts, multi-node storage | **Not implemented** — documented as future work |

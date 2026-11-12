@@ -33,7 +33,9 @@ def main() -> None:
     ap.add_argument("--base-url", default="http://localhost:8000")
     ap.add_argument("--out", default="docs/live-validation.md")
     ap.add_argument("--user-id", default="cliente1988")
+    ap.add_argument("--token", default=None, help="merchant bearer token (python -m scripts.issue_token ...)")
     args = ap.parse_args()
+    headers = {"Authorization": f"Bearer {args.token}"} if args.token else {}
     health = httpx.get(f"{args.base_url}/health", timeout=10).json()
     lines = [
         "# Live validation report (real LLM + real RAG + real APIs)",
@@ -49,7 +51,7 @@ def main() -> None:
     details = []
     for i, msg in enumerate(SCENARIOS, 1):
         t = time.perf_counter()
-        r = httpx.post(f"{args.base_url}/chat", json={"message": msg, "user_id": args.user_id}, timeout=600)
+        r = httpx.post(f"{args.base_url}/chat", json={"message": msg, "user_id": args.user_id}, headers=headers, timeout=600)
         dt = time.perf_counter() - t
         d = r.json()
         m = d["metadata"]

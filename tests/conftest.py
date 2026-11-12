@@ -41,9 +41,12 @@ class FakeLLM:
         self.planner_tools = planner_tools
 
     async def chat(self, system: str, user: str, *, json_mode: bool = False, max_tokens: int | None = None) -> str:
+        from app.services import usage
         self.calls.append({"system": system, "user": user, "json_mode": json_mode})
         if self.fail:
+            usage.record(self.provider, self.model, None, None, 0, ok=False)
             raise LLMError("fake outage")
+        usage.record(self.provider, self.model, len(system + user) // 4, 10, 1)  # deterministic fake accounting
         if system == ROUTER_SYSTEM:
             if self.router_raw is not None:
                 return self.router_raw
@@ -97,7 +100,7 @@ def mock_handler(request: httpx.Request) -> httpx.Response:
 @pytest.fixture
 def settings(tmp_path) -> Settings:
     return Settings(chroma_dir=str(tmp_path / "chroma"), chroma_collection=f"test_{uuid.uuid4().hex[:8]}",
-                    auto_ingest=True, tavily_api_key="")
+                    auto_ingest=True, tavily_api_key="", state_db_path=str(tmp_path / "state" / "app.db"))
 
 
 @pytest.fixture
@@ -122,7 +125,23 @@ def container(make_container):
     return make_container()
 
 
+def bearer(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
 @pytest.fixture
-def client(container):
+def merchant_token(container) -> str:
+    return container.tokens.issue("test-merchant", "merchant", "cliente1988")[0]
+
+
+@pytest.fixture
+def client(container, merchant_token):
+    """Authenticated as merchant cliente1988 (the original tests' user)."""
+    with TestClient(create_app(container), headers=bearer(merchant_token)) as c:
+        yield c
+
+
+@pytest.fixture
+def anon_client(container):
     with TestClient(create_app(container)) as c:
         yield c

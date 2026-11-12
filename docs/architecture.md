@@ -129,3 +129,38 @@ flowchart LR
 - **Observability** (`app/services/observability.py`): JSON logs carrying a `trace_id`, per-step
   latency, and the route method. The trace is also returned in `metadata`.
 - **Configuration** (`app/config.py`): `pydantic-settings`, env-driven, documented in `.env.example`.
+
+---
+
+## 8. v2 additions
+
+```mermaid
+sequenceDiagram
+    participant C as Client / UI
+    participant A as FastAPI
+    participant S as Auth (TokenStore)
+    participant H as ChatService
+    participant DB as SQLite
+    participant R as Router
+    C->>A: POST /chat (Bearer token, message, user_id, conversation_id?)
+    A->>S: authenticate → Principal(merchant_id, role)
+    A->>H: handle(req, principal)
+    H->>DB: owned conversation? (404 if foreign) · last 6 messages
+    alt conversation awaiting a human
+        H->>DB: attach message to open ticket (agents do not answer)
+    else
+        H->>R: handle(message, principal.merchant_id, history)
+        R->>R: guardrails → follow-up rewrite → classify → plan → run/observe/replan (≤4)
+        R->>R: grounding checks on evidence → Personality
+    end
+    H->>DB: persist sanitized turn + trace (one transaction each)
+    A-->>C: ChatResponse + conversation_id
+```
+
+- **State** (`app/state/`): one SQLite file — `credentials` (hashes only), `conversations`,
+  `messages`, `tickets`, `request_traces`.
+- **HITL** (`app/state/tickets.py`): `open → claimed → resolved | rejected`; resolution writes the
+  operator message and reactivates the conversation atomically.
+- **Grounding** (`app/rag/grounding.py`): runs inside the Knowledge agent on the exact evidence it
+  generated from; the runtime acts only on deterministic failures.
+- **UI** (`app/static/`): static files served at `/ui` with a strict CSP; uses the same API.

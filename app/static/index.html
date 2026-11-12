@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Assistente Getnet · Multiagente</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+  <script src="/ui/app.js" defer></script>
+</head>
+<body>
+  <!-- ============ Login ============ -->
+  <section id="login" class="login" hidden>
+    <div class="login-card">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">g</span><span>Assistente Getnet</span></div>
+      <h1>Entrar</h1>
+      <p class="muted">Use um token de acesso emitido localmente. O token fica apenas nesta aba (sessionStorage) e nunca é gravado no código.</p>
+      <form id="login-form" autocomplete="off">
+        <label for="token-input">Token de acesso</label>
+        <input id="token-input" type="password" placeholder="gnt_…" required spellcheck="false">
+        <button type="submit" class="btn-primary">Entrar</button>
+        <p id="login-error" class="error-text" role="alert"></p>
+      </form>
+      <details class="help">
+        <summary>Como gerar um token</summary>
+        <pre>python -m scripts.issue_token issue --role merchant --merchant cliente1988 --subject demo
+python -m scripts.issue_token issue --role operator --subject operador</pre>
+        <p class="muted">Os dados de cliente são <strong>simulados</strong> para demonstração.</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============ App ============ -->
+  <section id="app" class="app" hidden>
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">g</span><span>Assistente Getnet</span></div>
+      <button id="new-conv" class="btn-primary btn-block merchant-only">+ Nova conversa</button>
+      <nav class="conv-list merchant-only" id="conv-list" aria-label="Conversas"></nav>
+      <nav class="conv-list operator-only" id="ticket-filters" aria-label="Filas">
+        <button class="filter active" data-status="open">Abertos</button>
+        <button class="filter" data-status="claimed">Em atendimento</button>
+        <button class="filter" data-status="resolved">Resolvidos</button>
+        <button class="filter" data-status="rejected">Rejeitados</button>
+      </nav>
+      <div class="whoami">
+        <div><span class="dot"></span><span id="who"></span></div>
+        <button id="logout" class="btn-link">Sair</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button id="toggle-sidebar" class="btn-icon" aria-label="Abrir menu">☰</button>
+        <div>
+          <h2 id="conv-title">Nova conversa</h2>
+          <p id="conv-sub" class="muted small">Router → Knowledge (RAG + web) · Customer Support (ferramentas) · Escalation</p>
+        </div>
+        <span id="conv-status" class="pill" hidden></span>
+      </header>
+
+      <div id="messages" class="messages merchant-only" aria-live="polite"></div>
+      <div id="tickets" class="tickets operator-only"></div>
+
+      <form id="composer" class="composer merchant-only">
+        <textarea id="input" rows="1" placeholder="Pergunte sobre produtos, vendas ou maquininha…" title="Enter envia · Shift+Enter quebra linha" aria-label="Mensagem (Enter envia, Shift+Enter quebra linha)" maxlength="2000"></textarea>
+        <button id="send" class="btn-primary" type="submit" aria-label="Enviar">Enviar</button>
+      </form>
+    </main>
+  </section>
+
+  <template id="tpl-empty">
+    <div class="empty">
+      <h3>Como posso ajudar?</h3>
+      <p class="muted">Experimente:</p>
+      <div class="chips">
+        <button class="chip">Qual a diferença entre a Get Clássica e a Get Smart?</button>
+        <button class="chip">When will the money from yesterday's sales be deposited?</button>
+        <button class="chip">Minha maquininha não conecta.</button>
+        <button class="chip">What's the euro exchange rate today?</button>
+        <button class="chip">Quero falar com um atendente</button>
+      </div>
+    </div>
+  </template>
+</body>
+</html>

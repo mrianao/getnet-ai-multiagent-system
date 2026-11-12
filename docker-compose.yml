@@ -8,6 +8,11 @@
 #   docker compose --profile ollama up --build
 #   docker compose exec ollama ollama pull llama3.2:3b
 #   (and set LLM_BASE_URL=http://ollama:11434/v1 in .env)
+#
+# Credentials (tokens are printed once; only their hashes are stored in the volume):
+#   docker compose exec api python -m scripts.issue_token issue --role merchant --merchant cliente1988 --subject me
+#   docker compose exec api python -m scripts.issue_token issue --role operator --subject operator1
+# Then open http://localhost:8000/ui/
 services:
   api:
     build: .
@@ -21,6 +26,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - state:/app/state          # SQLite: token hashes, conversations, tickets, traces (survives restarts)
     restart: unless-stopped
 
   ollama:
@@ -33,3 +40,4 @@ services:
 
 volumes:
   ollama:
+  state:

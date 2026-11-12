@@ -29,13 +29,24 @@ class Settings(BaseSettings):
     corpus_path: str = str(ROOT / "data" / "corpus" / "pages.jsonl")
     chunk_size: int = 900
     chunk_overlap: int = 150
-    rag_top_k: int = 5
+    rag_top_k: int = 4                 # was 5; chosen with eval/retrieval_eval.py (see docs/evaluation)
     rag_min_score: float = 0.25
+    rag_dedupe: bool = True            # drop near-duplicate chunks (FAQ hub repeats its subpages)
+    rag_lexical_gate: float | None = 0.10  # drop hits without lexical support unless dense top-2
+    grounding_sim_threshold: float = 0.5   # embedding proxy threshold (reported, never used to delete)
     auto_ingest: bool = True  # build the index from the snapshot at startup if empty
 
     # --- Web tools ---
     tavily_api_key: str = ""
     http_timeout_s: float = 10.0
+
+    # --- State, auth & conversations (SQLite, standard library) ---
+    state_db_path: str = str(ROOT / ".cache" / "state" / "app.db")
+    history_window: int = 6           # messages (≈3 turns) fed back as conversation context
+    token_ttl_hours: float = 24 * 7   # default lifetime of issued tokens
+
+    # --- Orchestration ---
+    replan_budget_s: float = 150.0    # after this many seconds only an escalation may still be added
 
     # --- App ---
     log_level: str = "INFO"

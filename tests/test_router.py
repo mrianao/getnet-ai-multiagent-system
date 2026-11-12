@@ -49,8 +49,11 @@ async def test_multi_agent_plan_propagates_context(make_container):
     assert r.agents_invoked == [A.CUSTOMER_SUPPORT, A.KNOWLEDGE]
     # The Knowledge agent's prompt must contain the Customer Support result (inter-agent data flow)
     rag_call = next(c_ for c_ in llm.calls if "CONTEXT:" in c_["user"] and "CUSTOMER CONTEXT" in c_["user"])
-    assert "[customer_support]" in rag_call["user"]
-    assert r.metadata["personality_llm_merge"] is True
+    # v2.1: the verified diagnosis from the support tools (not the support agent's prose) is propagated
+    assert "No network signal (chip registration failed)" in rag_call["user"]
+    assert "verified account findings" in rag_call["user"]
+    assert r.metadata["personality_llm_merge"] is False  # v2: deterministic composition
+    assert r.answer.index("Your account") < r.answer.index("Official Getnet guidance")
 
 
 async def test_agent_failure_triggers_human_handoff(make_container):
@@ -77,3 +80,47 @@ async def test_pii_is_masked_before_reaching_llm(make_container):
     c = make_container(llm)
     await c.router.handle("My card 4111 1111 1111 1111 was declined at my machine", "cliente1988")
     assert all("4111 1111 1111 1111" not in call["user"] for call in llm.calls)
+
+
+@pytest.mark.parametrize("msg", ["Em quantas parcelas posso vender no crediário?",
+                                 "Preciso ter conta bancária para receber vendas pelo Pix?",
+                                 "Do I need a bank account to receive my sales via Pix?"])
+async def test_llm_customer_account_without_account_signal_is_corrected(make_container, msg):
+    """Observed in the real-model evaluation (pt02, pt06)."""
+    c = make_container(FakeLLM(router_intent={msg[:10]: "customer_account"}))
+    d = await c.router.classify(msg)
+    assert d.intent == Intent.PRODUCT_INFO and "corrected" in d.reason and d.method == "llm"
+
+
+async def test_llm_customer_account_with_account_signal_is_kept(make_container):
+    c = make_container(FakeLLM(router_intent={"Quando": "customer_account"}))
+    d = await c.router.classify("Quando vou receber o dinheiro das vendas de ontem?")
+    assert d.intent == Intent.CUSTOMER_ACCOUNT
+
+
+async def test_answer_like_rewrite_is_rejected(make_container):
+    """Observed in eval mt03: the 3B model 'rewrote' the follow-up into the assistant's previous answer."""
+    class AnsweringLLM(FakeLLM):
+        async def chat(self, system, user, **kw):
+            if "rewrite a merchant's follow-up" in system:
+                return ('{"standalone": "The Getnet crediário allows installment options, but I couldn\'t find the number '
+                        'of installments. Can you please check your contract?"}')
+            return await super().chat(system, user, **kw)
+    c = make_container(AnsweringLLM())
+    hist = [{"role": "user", "content": "What is the Getnet crediário?"},
+            {"role": "assistant", "content": "The Getnet crediário allows installment options for your customers."}]
+    standalone, info = await c.router.resolve_followup("And how many installments?", hist)
+    assert info["rewrite_method"] == "concat" and standalone == "What is the Getnet crediário? And how many installments?"
+
+
+async def test_rewrite_that_injects_a_number_is_rejected(make_container):
+    """eval mt03 run 2: the rewrite invented '12 parcelas'; the answer then repeated it."""
+    class InventingLLM(FakeLLM):
+        async def chat(self, system, user, **kw):
+            if "rewrite a merchant's follow-up" in system:
+                return '{"standalone": "Como muitos crediários, o Getnet crediário permite até 12 parcelas?"}'
+            return await super().chat(system, user, **kw)
+    c = make_container(InventingLLM())
+    hist = [{"role": "user", "content": "What is the Getnet crediário?"}, {"role": "assistant", "content": "It is..."}]
+    standalone, info = await c.router.resolve_followup("And how many installments?", hist)
+    assert info["rewrite_method"] == "concat" and "12" not in standalone

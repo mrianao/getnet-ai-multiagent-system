@@ -5,9 +5,16 @@ retrieval and customer support tools. Built for the **Getnet AI Hardcore Enginee
 assessment.
 
 > **It runs 100 % free and local.** The LLM is `llama3.2:3b` on Ollama, embeddings come from
-> multilingual MiniLM (ONNX, CPU), the vector database is ChromaDB, and web data comes from free
-> public APIs. The LLM layer is OpenAI-compatible, so Groq (free tier) or OpenAI can be used by
-> changing `.env`.
+> multilingual MiniLM (ONNX, CPU), the vector database is ChromaDB, state lives in SQLite (Python
+> standard library) and web data comes from free public APIs. The LLM layer is OpenAI-compatible,
+> so Groq (free tier) or OpenAI can be used by changing `.env`; `LLM_PROVIDER=anthropic` uses Claude.
+
+> **Version 2 (remediation after evaluator feedback).** The original submission is preserved at the
+> git tag `v1.0-submission`. Version 2 adds authentication, persistent multi-turn memory, an
+> operational human-in-the-loop workflow, evidence-backed grounding checks, an evaluation harness,
+> bounded replanning, observability and an HTML interface. Every change is mapped to the evaluators'
+> six gaps in [`CHANGELOG.md`](CHANGELOG.md); measured before/after results are in
+> [`docs/evaluation.md`](docs/evaluation.md).
 
 ---
 
@@ -25,11 +32,13 @@ assessment.
 11. [RAG pipeline](#11-rag-pipeline)
 12. [Agent communication workflow](#12-agent-communication-workflow)
 13. [LLM integration & prompt strategy](#13-llm-integration--prompt-strategy)
-14. [Guardrails, handoff & observability (bonus)](#14-guardrails-handoff--observability-bonus)
+14. [Security, memory, human-in-the-loop & observability](#14-security-memory-human-in-the-loop--observability)
 15. [Design decisions & trade-offs](#15-design-decisions--trade-offs)
 16. [Known limitations](#16-known-limitations)
 17. [Production readiness & evaluation strategy](#17-production-readiness--evaluation-strategy)
 18. [Future enhancements](#18-future-enhancements)
+19. [HTML interface](#19-html-interface)
+20. [Semantic evaluation](#20-semantic-evaluation)
 
 ---
 
@@ -42,19 +51,24 @@ answer. The response includes sources and a full execution trace.
 
 | Capability | Implementation |
 |---|---|
-| Router (entry point, plans, data flow) | LLM JSON intent classification with a rules fallback; sequential plans with context propagation |
-| Knowledge Agent | **Hybrid RAG** over 46 official Getnet pages (`getnet.net/en` + `site.getnet.com.br`) **plus** web tools (search, weather, FX) |
-| Customer Support Agent | 3 tools over **simulated** merchant data: transactions, settlement schedule, terminal status |
-| Escalation Agent (bonus, 4th agent) | Human handoff: opens a simulated ticket with the full context |
-| Guardrails (bonus) | Prompt-injection and unsafe-content blocking; card/CPF/CNPJ masking before the LLM sees the text |
-| Observability (bonus) | JSON logs with a `trace_id`; per-step agent, tool, latency and status in every response |
+| Router (entry point, plans, data flow) | LLM JSON intent classification with a rules fallback; sequential plans with context propagation; **bounded deterministic replanning** |
+| Knowledge Agent | **Hybrid RAG** over 46 official Getnet pages (`getnet.net/en` + `site.getnet.com.br`) **plus** web tools (search, weather, FX); **evidence retained + deterministic grounding checks** |
+| Customer Support Agent | 3 tools over **simulated** merchant data: transactions, settlement schedule, terminal status; merchant identity from the **authenticated principal** |
+| Escalation Agent (4th agent) | **Persistent human-in-the-loop**: ticket queue, atomic claim, approve AI draft / reply / reject, conversation resumes |
+| Authentication | Bearer tokens (hashed in SQLite), merchant/operator roles; `user_id` can no longer select identity |
+| Conversations | Persistent multi-turn memory (SQLite), owner-scoped, follow-up rewriting, survives restarts |
+| Guardrails | Prompt-injection and unsafe-content blocking; card/CPF/CNPJ masking before the LLM sees or stores the text |
+| Observability | JSON logs with `trace_id`; per-step agents, tools, latency, tokens, grounding and evidence in every response; persisted traces; operator-only `/metrics` |
+| HTML interface | `/ui`: chat, conversation history, technical details, operator queue (vanilla JS, no build) |
 
 ## 2. Architecture
 
 ```mermaid
 flowchart LR
-    U([Client]) -->|POST /chat| API[FastAPI]
-    API --> G{{Guardrails}}
+    U([Client / HTML UI]) -->|Bearer token| API[FastAPI]
+    API --> AUTH{{Auth: Principal<br/>merchant · operator}}
+    AUTH --> CONV[(SQLite<br/>conversations · tickets<br/>token hashes · traces)]
+    AUTH --> G{{Guardrails}}
     G -->|blocked| OUT
     G --> R[Router Agent<br/>LLM intent + rules fallback]
     R -->|AgentTask| KA[Knowledge Agent]
@@ -65,8 +79,11 @@ flowchart LR
     CS --> CT[Support tools<br/>transactions · settlements · terminals]
     KA -->|AgentResult| P[Personality layer]
     CS -->|AgentResult| P
+    ES -->|ticket| CONV
+    OP([Operator]) -->|claim · approve/reply/reject| CONV
     ES -->|AgentResult| P
-    P --> OUT([JSON: answer · sources · trace])
+    P --> GR{{Grounding checks<br/>citations · numbers}}
+    GR --> OUT([JSON: answer · sources · evidence · trace])
     LLM[[LLM client · Ollama llama3.2:3b<br/>any OpenAI-compatible API]] -.-> R & KA & CS & P
 ```
 
@@ -75,7 +92,7 @@ This follows the assessment's reference diagram (*Input → Router → Knowledge
 
 ```
 app/
-├── main.py                 # FastAPI: POST /chat, GET /health, error handler
+├── main.py                 # FastAPI: /chat, /conversations, /operator/*, /metrics, /me, /health, /ui
 ├── container.py            # composition root (dependency injection)
 ├── config.py               # pydantic-settings (env-driven)
 ├── agents/
@@ -94,22 +111,28 @@ app/
 ├── tools/
 │   ├── customer.py         # 3 support tools over simulated data
 │   └── web.py              # web_search, get_weather, get_exchange_rate
+├── rag/grounding.py        # citation validity, numeric support, embedding proxy, runtime policy
+├── security/auth.py        # bearer tokens (hashed), Principal, role dependencies
+├── state/                  # SQLite: db, conversations, tickets (HITL), traces/metrics
+├── static/                 # HTML/CSS/JS interface served at /ui
 ├── models/schemas.py       # API contract + AgentTask/AgentResult messages
-└── services/               # llm client, guardrails, observability
+└── services/               # llm client + usage accounting, chat use-case, guardrails, logging
 data/corpus/pages.jsonl     # snapshot of extracted official Getnet pages (46 pages)
+eval/                       # dataset (33 cases), online + retrieval evaluators, results
+scripts/issue_token.py      # issue / list / revoke credentials
 scripts/live_check.py       # live validation of the 10 PDF scenarios (real LLM)
-tests/                      # 77 offline tests
-docs/                       # SDD: spec, architecture, decisions, plan, traceability, demo
+tests/                      # offline test suite
+docs/                       # SDD: spec, architecture, decisions, traceability, evaluation
 ```
 
 ## 3. Agents
 
 | Agent | Responsibility | Tools / data |
 |---|---|---|
-| **Router** (`agents/router.py`) | Entry point. Runs guardrails, classifies intent (`product_info`, `general`, `customer_account`, `troubleshooting`, `human`), maps the intent to a plan, runs agents in sequence passing context, triggers handoff on failure, and calls Personality. | LLM (JSON mode) + regex rules |
+| **Router** (`agents/router.py`) | Entry point. Runs guardrails, resolves follow-ups against the conversation history, classifies intent (`product_info`, `general`, `customer_account`, `troubleshooting`, `human`, `smalltalk`, `out_of_scope`), maps the intent to a plan, runs agents in sequence passing context, replans within bounds, escalates only when justified, and calls Personality. | LLM (JSON mode) + regex rules |
 | **Knowledge** (`agents/knowledge.py`) | Product questions are answered by RAG over Getnet's official sites, with numbered citations. General questions are answered by web tools. | `rag_retrieve`, `web_search`, `get_weather`, `get_exchange_rate` |
 | **Customer Support** (`agents/customer_support.py`) | The LLM plans which tools to call (validated against the registry, with a rules safety net). The agent runs them for the `user_id` and writes a contextual answer that discloses the data is simulated. | `get_customer_profile`, `get_transaction_status`, `get_settlement_schedule`, `get_terminal_status` |
-| **Escalation** (`agents/escalation.py`, bonus) | Human handoff: a ticket with a protocol number and a summary of what each agent found. | simulated queue |
+| **Escalation** (`agents/escalation.py`, 4th agent) | Opens (or reuses) a persistent ticket with the recent conversation, what each agent found and, when available, an **AI draft** that an operator must approve, edit or reject. | SQLite ticket queue |
 | **Personality** (`agents/personality.py`) | Merges multi-agent answers into one reply in Getnet's voice (one LLM call, only when 2 or more agents answered). | LLM |
 
 Which agents handle each intent:
@@ -121,6 +144,8 @@ Which agents handle each intent:
 | `customer_account` | Customer Support | yesterday's sales deposit |
 | `troubleshooting` | Customer Support → Knowledge | machine won't connect, decline error |
 | `human` | Escalation | "I want to talk to a human" |
+| `smalltalk` | none (router answers deterministically, no LLM call) | "hi", "obrigado!" |
+| `out_of_scope` | none (polite decline, no ticket) | "Write me a poem" |
 
 ## 4. Tech stack
 
@@ -185,12 +210,21 @@ python -m app.rag.ingest
 uvicorn app.main:app --port 8000
 ```
 
+Issue a credential (printed **once**; only its SHA-256 hash is stored). Keep it out of git, tickets and chat:
+
 ```bash
-curl -s localhost:8000/chat -H 'content-type: application/json' \
+TOKEN=$(python -m scripts.issue_token issue --role merchant --merchant cliente1988 --subject me --quiet)
+```
+
+```bash
+curl -s localhost:8000/chat -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" \
   -d '{"message": "When will the money from yesterday'"'"'s sales be deposited?", "user_id": "cliente1988"}' | python3 -m json.tool
 ```
 
-Interactive API docs: http://localhost:8000/docs
+- HTML interface: http://localhost:8000/ui/ (paste the token) — see [§19](#19-html-interface)
+- Interactive API docs: http://localhost:8000/docs (use **Authorize** with the token)
+- Simulated merchants available: `cliente1988`, `cliente2024`. Operators: `--role operator --subject <name>`.
+- Other commands: `python -m scripts.issue_token list` and `python -m scripts.issue_token revoke <token_id>`.
 
 To refresh the knowledge base from the live Getnet websites:
 
@@ -209,7 +243,12 @@ needed for the default setup.
 | `LLM_MODEL` | `llama3.2:3b` | e.g. `llama-3.1-8b-instant` on Groq |
 | `LLM_API_KEY` | `ollama` | Needed only for cloud providers |
 | `LLM_PROVIDER` | `ollama` | Label shown in responses and logs; `anthropic` switches to the Claude client |
-| `RAG_TOP_K` / `RAG_MIN_SCORE` | `5` / `0.25` | Retrieval depth / minimum cosine similarity |
+| `RAG_TOP_K` / `RAG_MIN_SCORE` | `4` / `0.25` | Retrieval depth / minimum cosine similarity (top-k 5 → 4 chosen by evaluation) |
+| `RAG_DEDUPE` / `RAG_LEXICAL_GATE` | `true` / `0.10` | Near-duplicate removal; drop hits without lexical support unless dense top-2 |
+| `GROUNDING_SIM_THRESHOLD` | `0.5` | Embedding proxy for claim support — reported only, never used to delete text |
+| `STATE_DB_PATH` | `.cache/state/app.db` | SQLite file (Docker: `/app/state/app.db` on a volume) |
+| `HISTORY_WINDOW` / `TOKEN_TTL_HOURS` | `6` / `168` | Messages fed back as context / default token lifetime |
+| `REPLAN_BUDGET_S` | `150` | After this time only an escalation may still be added to the plan |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `900` / `150` | Characters |
 | `TAVILY_API_KEY` | empty | Optional (free tier) for better general web search |
 | `AUTO_INGEST` | `true` | Builds the index at startup if it is empty |
@@ -238,6 +277,13 @@ docker compose up --build
 curl -s localhost:8000/health
 ```
 
+```bash
+docker compose exec api python -m scripts.issue_token issue --role merchant --merchant cliente1988 --subject me
+```
+
+Then open http://localhost:8000/ui/. State (token hashes, conversations, tickets, traces) lives on the
+`state` volume at `/app/state`, owned by the non-root `appuser`, and survives `docker compose restart`.
+
 Plain Docker commands, without compose:
 
 ```bash
@@ -245,7 +291,7 @@ docker build -t getnet-ai-multiagent-system .
 ```
 
 ```bash
-docker run --rm -p 8000:8000 --add-host=host.docker.internal:host-gateway -e LLM_BASE_URL=http://host.docker.internal:11434/v1 getnet-ai-multiagent-system
+docker run --rm -p 8000:8000 -v getnet-state:/app/state --add-host=host.docker.internal:host-gateway -e LLM_BASE_URL=http://host.docker.internal:11434/v1 getnet-ai-multiagent-system
 ```
 
 Run the test suite inside the image:
@@ -271,7 +317,7 @@ python -m pytest -q
 python -m pytest --cov=app --cov-report=term-missing
 ```
 
-Current result: **77 passed, 87 % line coverage of `app/`**, all offline.
+Current result: see [§20](#20-semantic-evaluation) and [`docs/evaluation.md`](docs/evaluation.md) — **201 passed, 0 skipped, 92% line coverage of `app/`** (offline).
 
 ### Testing strategy
 
@@ -282,10 +328,17 @@ Current result: **77 passed, 87 % line coverage of `app/`**, all offline.
 | **Integration (orchestration)** | Router → agents → Personality: plans, **context propagation between agents** (asserted on the actual prompt), handoff on agent failure, guardrails before routing, PII never reaching the LLM, LLM outage → rules + extractive answers | Full container with fakes, over the **real** committed corpus |
 | **API contract** | Response schema, 422 on invalid payloads (8 cases + malformed JSON), 500 JSON on unhandled errors, `/health` | FastAPI `TestClient` |
 | **Scenario regression** | The **10 PDF scenarios**: intent, agents invoked, tools used, source types, status | `tests/test_scenarios.py` |
+| **Security** | 401 (missing/invalid/expired/revoked), 403 cross-tenant `user_id`, role separation, token never stored or logged, conversation/ticket isolation | `tests/test_auth.py`, `tests/test_conversations.py`, `tests/test_hitl.py` |
+| **Memory & HITL** | Two-turn "É a Smart." continuity, restart recovery, PII masked before persistence, ticket lifecycle, atomic claim (409), idempotent resolve | `tests/test_conversations.py`, `tests/test_hitl.py` |
+| **Grounding & retrieval** | Number/date/citation checks, policy removes only deterministic failures, extractive fallback, evidence in metadata; **real-embedder** retrieval regressions (antecipação no longer retrieves card activation) | `tests/test_grounding.py` (real-model tests skip if the model cache is absent) |
+| **Escalation & replanning** | No tickets for greetings / out-of-scope / missing knowledge; bounded replans, no repeats, escalation last | `tests/test_escalation_behavior.py`, `tests/test_replanning.py` |
+| **Semantic evaluation** (separate, real model) | 33 cases / 36 turns: routing, facts, forbidden claims, citations, retrieval, groundedness, latency | `python -m eval.run_eval` → [`docs/evaluation.md`](docs/evaluation.md) |
 | **Live validation** (separate, opt-in) | The same 10 scenarios against the **real** LLM, real index and real APIs | `python -m scripts.live_check` → [`docs/live-validation.md`](docs/live-validation.md) |
 
 > **Mocked vs real.** The automated suite (CI) never calls a real LLM or the internet, which
-> makes it deterministic, fast (~30 s) and free. Real behaviour (real `llama3.2:3b`, real
+> makes it deterministic, fast (~1.5 min) and free. A green suite proves the system behaves as
+> designed; it does **not** prove that generated answers are always correct — that is what the
+> semantic evaluation measures, with its limits stated. Real behaviour (real `llama3.2:3b`, real
 > retrieval, live weather/FX APIs) is validated by `scripts/live_check.py`. Its latest output
 > is committed in [`docs/live-validation.md`](docs/live-validation.md).
 
@@ -300,9 +353,22 @@ Current result: **77 passed, 87 % line coverage of `app/`**, all offline.
 
 ## 10. API
 
+All endpoints except `/health`, `/ui` and `/docs` require `Authorization: Bearer <token>`.
+
+| Endpoint | Role | Purpose |
+|---|---|---|
+| `POST /chat` | merchant | Chat; `{message, user_id, conversation_id?}` — `user_id` must equal the token's merchant (403 otherwise) |
+| `GET /conversations` · `GET /conversations/{id}` | merchant | Own conversations / full history (another tenant's id → 404) |
+| `GET /me` | any | The authenticated principal |
+| `GET /operator/tickets?status=` · `GET /operator/tickets/{id}` | operator | Human-in-the-loop queue |
+| `POST /operator/tickets/{id}/claim` | operator | Atomic claim (409 if another operator holds it) |
+| `POST /operator/tickets/{id}/resolve` | operator | `{decision: approve_draft \| reply \| reject, reply?}`; optional `Idempotency-Key` header |
+| `GET /metrics` · `GET /operator/traces/{trace_id}` | operator | Prometheus metrics / persisted trace |
+| `GET /health` | public | Liveness, LLM reachability, index size |
+
 ### `POST /chat`
 
-Request:
+Request (the original `{message, user_id}` contract is preserved; `conversation_id` is optional):
 
 ```json
 { "message": "My card machine won't connect to the internet, what should I do?", "user_id": "cliente1988" }
@@ -330,16 +396,27 @@ Response (abridged; real structure):
     "personality_llm_merge": true,
     "latency_ms": 21544,
     "llm_provider": "ollama", "llm_model": "llama3.2:3b",
-    "guardrails": {"pii_masked": false, "flags": []}
-  }
+    "guardrails": {"pii_masked": false, "flags": []},
+    "conversation": {"history_messages": 0, "followup": false, "rewrite_method": null},
+    "replans": [],
+    "usage": {"llm_calls": 5, "tokens_in": 4120, "tokens_out": 610, "llm_latency_ms": 20900},
+    "evidence": [{"type": "tool", "tool": "get_terminal_status", "arguments": {}, "merchant_id": "cliente1988", "agent": "customer_support", "trace_id": "4f7c…"},
+                 {"type": "rag", "rank": 1, "chunk_id": "9c1e…", "url": "https://site.getnet.com.br/duvidas/", "text": "…", "score": 0.49, "bm25": 7.1, "rrf": 0.031, "agent": "knowledge", "trace_id": "4f7c…"}],
+    "grounding": {"knowledge": {"verdict": "grounded", "ratio": 0.83, "removed_claims": [], "invalid_citations": 0, "method": "citation+numeric(enforced)+embedding_proxy(reported)"}}
+  },
+  "conversation_id": "5d1f0c…"
 }
 ```
+
+(Values are illustrative of the structure; real responses are in `eval/results/final-run1/results.json`.)
 
 `status` is one of `success`, `partial` (degraded: the LLM or a tool was unavailable), `escalated`
 (human handoff), `blocked` (guardrail) or `error`.
 
-Errors: `422` for invalid input (empty or blank message, more than 2000 characters, `user_id`
-outside `[A-Za-z0-9_.-]{1,64}`, malformed JSON). `500` returns `{"status":"error","detail":"Internal server error"}`.
+Errors: `401` missing/invalid/expired/revoked token; `403` wrong role or `user_id` ≠ authenticated
+merchant; `404` unknown or foreign conversation; `422` invalid input (empty or blank message, more
+than 2000 characters, malformed `user_id`/`conversation_id`, malformed JSON); `500` returns
+`{"status":"error","detail":"Internal server error"}`.
 
 ### `GET /health`
 
@@ -368,10 +445,26 @@ More example answers produced by the real model are in [`docs/live-validation.md
    and its Portuguese equivalent score **0.945** cosine similarity.
 6. **Storage:** a ChromaDB persistent collection (cosine). Upserts are idempotent, keyed by a content hash.
 7. **Retrieval (hybrid):** the dense top-30 and the BM25 top-30 (accent-folded tokens) are fused
-   with **Reciprocal Rank Fusion**. Hits below the cosine threshold are dropped, and the top 5 are returned.
+   with **Reciprocal Rank Fusion**. Then, in v2: hits below the cosine threshold are dropped;
+   hits with no lexical support (BM25 < 10 % of the best) are dropped unless they are in the dense
+   top-2 (cross-lingual safety net); near-duplicates (≥ 60 % token containment — the FAQ hub page
+   repeats its subpages) are dropped; the top **4** are returned.
 8. **Generation:** numbered context blocks plus a strict prompt (answer **only** from the context,
-   cite `[n]`, say when the information isn't found, answer in the user's language). `sources[]`
-   is built **from the retrieved chunks, never by the LLM**, so citations can't be invented.
+   cite `[n]` on every factual sentence, never invent procedures, ignore off-topic excerpts, PT→EN
+   glossary, answer in the user's language). `sources[]` is built **from the retrieved chunks,
+   never by the LLM**, so sources can't be invented.
+9. **Evidence & grounding (v2):** the exact chunks given to the model are returned in
+   `metadata.evidence` (chunk id, URL, text, dense/BM25/RRF scores, rank, agent, trace id). The
+   answer is then checked (`app/rag/grounding.py`): invalid `[n]` markers are removed; a sentence
+   stating a **number or date absent from the evidence** is removed; claims with weak embedding
+   similarity are **flagged, never deleted** (similarity is a proxy, not entailment). If every
+   factual claim fails a deterministic check, the agent quotes the official excerpts instead.
+
+**Root cause of the documented semantic failure.** The evaluators saw card-activation steps in an
+answer about receivables advance. The 5th retrieved chunk came from `/duvidas/cartao-getnet/`
+(cosine 0.616 but BM25 0.1): it entered through the dense side of RRF. The lexical gate and
+top-k 4 remove it; the change was accepted only because recall (hit@k, MRR) did not drop on the
+evaluation set. Regression test: `tests/test_grounding.py::test_antecipacao_no_longer_retrieves_card_activation`.
 
 Why hybrid? During development, dense-only retrieval for *"Get Clássica vs Get Smart"* returned
 the careers FAQ page, and the model correctly answered "not found". BM25 catches exact product
@@ -394,8 +487,22 @@ Example: **"My card machine won't connect to the internet"**
    and writes steps tailored to the diagnosis.
 4. Personality merges both into one reply: the diagnosis first, then the steps, with citations.
 
-`BaseAgent.run` isolates failures: an exception becomes `AgentResult(status="error")`, and the
-Router then hands off to the Escalation agent. One failing agent never causes an HTTP 500.
+`BaseAgent.run` isolates failures: an exception becomes `AgentResult(status="error")`. One failing
+agent never causes an HTTP 500.
+
+**Multi-turn (v2).** `POST /chat` loads the last 6 messages of the (owner-checked) conversation.
+A short or elliptical message with no explicit routing signal ("É a Smart.", "And what about
+today's sales?") is a follow-up: the LLM rewrites it into a standalone message (validated by the
+guardrails), with a deterministic fallback that prefixes the previous user turn. Example:
+"Minha maquininha não conecta." → "É a Smart." is rewritten to a troubleshooting request about the
+Get Smart and runs `[customer_support, knowledge]` again. Self-contained messages are untouched,
+so single-turn behaviour (and cost) is unchanged.
+
+**Bounded replanning (v2).** After every step a deterministic supervisor may add one specialist
+(max 4 steps, never the same agent twice, latency budget, every decision in `metadata.replans`):
+support failure during troubleshooting → escalation with the Knowledge answer as AI draft; an
+account question that also asks how a product works → + Knowledge; a product question that refers
+to the merchant's own recent data → + Customer Support. No framework migration was needed.
 
 ## 13. LLM integration & prompt strategy
 
@@ -420,18 +527,38 @@ Router then hands off to the Escalation agent. One failing agent never causes an
 - **LLM calls per request:** 2 for single-agent plans (route + answer, plus the planner for
   support) and 4–5 for troubleshooting. Personality skips its call when only one agent answered.
 
-## 14. Guardrails, handoff & observability (bonus)
+## 14. Security, memory, human-in-the-loop & observability
 
-- **Guardrails** (`app/services/guardrails.py`): regex detection of prompt injection (English and
-  Portuguese) and unsafe or fraud requests (card cloning, money laundering, bypassing anti-fraud)
-  returns `status: "blocked"` before any LLM call. Card numbers are Luhn-validated and masked, and
-  CPF/CNPJ are masked. The masked text is what the agents and the LLM see.
-- **Human handoff:** an explicit request (`human` intent), all agents failing, or zero retrieval
-  confidence on a product question routes to the **Escalation Agent**. It creates a ticket
-  (`GN-XXXXXXXX`) with the transcript and agent summaries, and the response has `status: "escalated"`.
+- **Authentication & authorization** (`app/security/auth.py`): opaque `gnt_` bearer tokens
+  (256-bit, `secrets`), stored only as SHA-256 hashes with expiry and revocation; roles `merchant`
+  and `operator`. The tools receive `principal.merchant_id`; the body's `user_id` must match it.
+  *Limit:* this is local API-caller authentication, not an identity provider (no SSO/OIDC, MFA or
+  key-rotation service); the `Principal` boundary is where an IdP-issued JWT would plug in.
+- **Tenant isolation** (`app/security/tenancy.py`, v2.1): requests about another merchant ("as
+  transações do cliente2024", "outro lojista", identity override, "E as dele?" after a refusal) are
+  refused before routing and before any tool call, without revealing whether that merchant exists;
+  private tools are authorized against the principal; support answers naming another merchant or citing
+  transaction ids / R$ amounts absent from the tool output are replaced by a deterministic summary of the
+  merchant's own data. See `CHANGELOG.md` v2.1.0 for the incident and diagnosis.
+- **Guardrails** (`app/services/guardrails.py`): prompt-injection (EN/PT) and unsafe/fraud requests
+  return `status: "blocked"` before any LLM call; card numbers (Luhn), CPF and CNPJ are masked
+  before the LLM sees them **and before anything is persisted**; blocked inputs are stored as a
+  placeholder and never replayed as context; LLM rewrites of follow-ups are re-checked.
+- **Escalation — only when justified:** explicit request, every agent failing, or the replanner
+  (support data unavailable during troubleshooting). Greetings, thanks and out-of-scope requests
+  are answered by the router without an LLM call; missing knowledge gets an honest "not found" and
+  an offer of a human, not an automatic ticket.
+- **Human-in-the-loop** (`app/state/tickets.py`): `open → claimed → resolved | rejected`. Claims
+  are atomic (409 for a second operator), only the claimer can resolve, and the operator approves
+  the AI draft, writes a reply or rejects with a reason. Resolution appends the operator message
+  and reactivates the conversation **in the same transaction**. While a ticket is open, merchant
+  messages are attached to the ticket and the agents do not answer (no conflicting replies).
+  At most one open ticket per conversation; `Idempotency-Key` makes retries safe.
 - **Observability:** JSON logs (`routed`, `agent_completed`, `request_completed`, `request_blocked`)
-  with `trace_id`, agent, tools, latency and confidence. The same trace is returned in `metadata`
-  for debugging from the client side.
+  with `trace_id`; per-step latency, tools, LLM calls and tokens (as reported by the provider —
+  `null`, never estimated, when not reported); persisted `request_traces` with evidence
+  references; operator-only `GET /metrics` (Prometheus text: status, route method, intents,
+  escalations, p50/p95 latency, tokens, grounding ratio, unresolved tickets).
 
 ## 15. Design decisions & trade-offs
 
@@ -443,8 +570,12 @@ Router then hands off to the Escalation agent. One failing agent never causes an
 | Committed corpus snapshot | Reproducible and offline, but can go stale (`--crawl` refreshes it; production would schedule it) |
 | Rules-based guardrails | Deterministic and add no latency, but lower recall than an ML classifier (e.g. Llama Guard) |
 | Simulated customer data relative to "today" | "Yesterday's sales" always works in demos, but it isn't real data (clearly disclosed) |
+| SQLite (stdlib) for state | Zero infrastructure, durable, transactional; single-node — a multi-replica deployment needs Postgres |
+| Opaque hashed tokens instead of an IdP | Real, testable authN/Z without paid services; not SSO/OIDC (documented) |
+| Grounding acts only on deterministic failures | Never deletes a correct sentence because of a similarity threshold; semantic drift without numbers is flagged, not prevented |
+| Deterministic replanning rules | Predictable, bounded and testable; covers fewer situations than an LLM supervisor |
 
-All 11 ADRs: [`docs/decisions.md`](docs/decisions.md).
+All ADRs (001–017): [`docs/decisions.md`](docs/decisions.md).
 
 ## 16. Known limitations
 
@@ -459,7 +590,17 @@ All 11 ADRs: [`docs/decisions.md`](docs/decisions.md).
   availability isn't guaranteed. The DuckDuckGo Instant Answer API covers encyclopedic queries,
   not arbitrary news; a Tavily free key improves general search.
 - **Static crawl:** content rendered by client-side JavaScript isn't captured.
-- No authentication, rate limiting or persistent conversation memory (single-turn).
+- **Grounding is not entailment:** numbers, dates and citations are verified deterministically;
+  semantic support is an embedding proxy that is reported, not enforced. A fluent, number-free but
+  unsupported sentence can still pass (it is flagged in `metadata.grounding`).
+- **Evaluation scale:** 33 cases / 36 turns, a single real-model run per configuration on a
+  CPU-only container; the human-review sheet is provided but **not yet labelled** — see
+  [`docs/evaluation.md`](docs/evaluation.md).
+- **Auth scope:** local token store, no IdP, no rate limiting. **State:** single-node SQLite.
+- **Follow-up detection** is heuristic (short/elliptical messages); a long follow-up without an
+  elliptical lead is treated as a new question.
+- **HITL:** no notifications (the merchant UI polls every 5 s), no SLA timers, no ticket reassignment.
+- **Observability:** no OpenTelemetry export, dashboards or alerting (metrics endpoint only).
 
 ## 17. Production readiness & evaluation strategy
 
@@ -470,16 +611,78 @@ All 11 ADRs: [`docs/decisions.md`](docs/decisions.md).
 | **Tracing** | Export the existing per-step spans to OpenTelemetry (Azure Monitor / Langfuse) with trace_id, tokens, latency per agent and per tool |
 | **Dashboards & alerts** | p95 latency, error rate, fallback spikes (LLM degradation), escalation spikes, tool 429s, index freshness |
 | **Reliability** | Circuit breakers per tool, response caching for FX/weather, async job for crawling, managed vector DB, horizontal scaling behind a gateway |
-| **Security** | AuthN/Z (merchant identity from token, not request body), rate limiting, secret manager, LLM-based moderation, PII redaction in logs, LGPD retention policies |
+| **Security** | Done in v2: authN/Z with merchant identity from the token. Next: IdP (OIDC) integration, rate limiting, secret manager, LLM-based moderation, LGPD retention policies |
 
 ## 18. Future enhancements
 
-- Multi-turn memory (session store) and clarifying questions.
+- Clarifying questions and an LLM rolling summary for long conversations (v2 uses a bounded window).
+- OpenTelemetry export of the existing per-step traces; Grafana dashboards and alerts on the `/metrics` series.
+- NLI-based claim verification to complement the deterministic checks; FAQ-aware re-chunking.
 - Parallel fan-out for independent agents, or LangGraph if workflows grow.
 - Cross-encoder reranker; scheduled re-crawl with change detection; sitemap-based ingestion.
 - Native tool/function calling with larger models; streaming responses (SSE).
 - Real integrations (transactions/settlement APIs) behind the same tool interfaces.
 - Teams/Slack handoff for the Escalation agent; CSAT feedback loop into the eval dataset.
+
+## 19. HTML interface
+
+A lightweight interface (HTML + CSS + vanilla JS, no build step, served by FastAPI) for testing
+conversations, which Swagger makes inconvenient. It is a usability addition, not a challenge requirement.
+
+1. Start the API (local or Docker) and issue a token (`python -m scripts.issue_token issue …`).
+2. Open http://localhost:8000/ui/ and paste the token. It is kept only in this tab's
+   `sessionStorage`; nothing is hardcoded.
+3. **Merchant view:** new conversation, conversation list, server-side history restore, Enter to
+   send / Shift+Enter for a new line, loading state with elapsed seconds (a local CPU model can
+   take tens of seconds), agent chips, sources, and a collapsible **technical details** panel showing
+   only what the backend returned: route and method, follow-up rewrite, per-step latency/tools/tokens,
+   replans, grounding (removed and flagged claims), evidence chunks with scores, tool calls, trace id.
+4. **Operator view** (operator token): ticket queues, claim, approve the AI draft, reply or reject.
+   The merchant's conversation shows the specialist's reply automatically (5-second polling).
+
+Security: strict Content-Security-Policy (`default-src 'self'`, no inline scripts), `X-Frame-Options:
+DENY`, all server text HTML-escaped before formatting, only `http(s)` links rendered.
+
+## 20. Semantic evaluation
+
+`eval/` contains a versioned dataset (33 cases / 36 turns: the 10 PDF scenarios, Portuguese
+variants, product, transaction, troubleshooting, multi-turn, greetings, out-of-scope,
+adversarial, cross-tenant and the documented antecipação failure), an online harness that drives
+the real HTTP API with the real model, an offline retrieval evaluator and a human-review rubric.
+
+```bash
+python -m eval.retrieval_eval
+```
+
+```bash
+python -m eval.run_eval --base-url http://localhost:8000 --token "$TOKEN" --label my-run --runs 1
+```
+
+Metrics: routing accuracy, agents/tools, expected statuses (security, small talk), unwanted
+tickets, required-fact recall, forbidden claims, citation validity, retrieval hit@k/MRR/precision,
+groundedness (from the exact evidence of each answer) and latency. Results, the baseline of the
+original code, method and limitations: **[`docs/evaluation.md`](docs/evaluation.md)**.
+
+Final measurement (run 4, real `llama3.2:3b`, same dataset and harness for both columns):
+
+| Metric | Original code | v2 |
+|---|---|---|
+| Routing accuracy | 0.81 | **1.00** |
+| Expected status (blocked / small talk / escalated) | 0.50 | **1.00** |
+| Cross-tenant `user_id` override | 200 (data leaked) | **403** |
+| Multi-turn "É a Smart." follow-up | wrong intent | **troubleshooting** |
+| Citation validity (RAG) | 0.77 | **0.92** |
+| Retrieval precision@k / forbidden-URL rate | 0.72 / 0.08 | **0.82 / 0.00** |
+| Required-fact recall | 0.75 | 0.78 |
+| All required facts present | 0.70 | 0.70 |
+
+Fact recall barely moved: the remaining misses are model-level omissions and one cross-lingual
+retrieval miss, documented in [`docs/evaluation.md`](docs/evaluation.md) with every per-turn result.
+Human labels are pending (rubric in [`eval/HUMAN_REVIEW.md`](eval/HUMAN_REVIEW.md)).
+
+| | |
+|---|---|
+| ![Multi-turn conversation with technical details](docs/images/ui-multiturn.png) | ![Operator reply delivered to the merchant](docs/images/ui-handoff.png) |
 
 ---
 

@@ -9,7 +9,7 @@ resolve to concrete records.
 from __future__ import annotations
 
 import random
-import zlib
+import hashlib
 from datetime import date, timedelta
 from typing import Any, Callable
 
@@ -64,7 +64,8 @@ def _txns(user_id: str, today: date) -> list[dict]:
             installments = rnd.choice([1, 1, 2, 3]) if method == "credit" else 1
             settle = d + timedelta(days=rule[method])
             out.append({
-                "transaction_id": f"TX{d.strftime('%m%d')}{n:02d}{zlib.crc32(user_id.encode()) % 97:02d}",
+                # merchant-unique suffix (the old crc32 % 97 collided: cliente1988 and cliente2024 both gave "38")
+                "transaction_id": f"TX{d.strftime('%m%d')}{n:02d}{hashlib.sha256(user_id.encode()).hexdigest()[:4].upper()}",
                 "date": d.isoformat(), "method": method, "amount_brl": amount, "installments": installments,
                 "status": status, "decline_code": code,
                 "decline_reason": DECLINE_CODES.get(code) if code else None,
