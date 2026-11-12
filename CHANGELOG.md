@@ -1,5 +1,46 @@
 # Changelog
 
+## v2.1.0 — security fix: tenant isolation (2026-11-12)
+
+**Incident (found in manual end-to-end testing).** Authenticated as `cliente1988`, the message
+"Quero consultar os recebíveis e as transações do cliente2024." produced an answer that listed
+transactions and attributed them to `cliente2024`.
+
+**Diagnosis (from the request trace, reproduced with the real model on `5ada0e9`):**
+- **No cross-tenant data access.** Both private tools ran with `merchant_id = cliente1988` — the
+  authenticated principal (`AgentTask.user_id` ← `Principal.merchant_id`).
+- **Misattribution + fabrication by the LLM.** The model presented the authenticated merchant's data as
+  the other merchant's and invented a procedure ("selecione o cliente2024 no painel").
+- **Aggravating data-model bug.** Simulated transaction ids collided across merchants (`crc32 % 97`
+  gave the same suffix `38` for both), so misattributed ids looked legitimate.
+
+**Fix — defence in depth, deterministic (not prompt-based):**
+1. `app/security/tenancy.py` + router: cross-merchant requests (another merchant id, "outro lojista",
+   identity override, follow-ups after a refusal such as "E as transações dele?") are refused **before
+   routing and before any tool call**. The refusal never reveals whether the other merchant exists.
+   Rewritten follow-ups are re-checked.
+2. Customer Support: refuses again if reached (router bypass); every private tool call is authorized
+   against the principal; generated answers are **rejected** if they name another merchant or contain
+   transaction ids or R$ amounts absent from the tool output → deterministic summary of the merchant's
+   own data.
+3. Router output check: a final answer naming another merchant is replaced by the refusal.
+4. Memory: the message naming the other merchant is excluded from history; the refusal marker is kept.
+5. Merchant-unique simulated transaction ids (SHA-256 prefix).
+
+**Targeted quality fixes from the same manual tests:** product-topic evidence filter (an antecipação
+answer had imported Crediário conditions); troubleshooting Knowledge receives the verified diagnosis
+instead of the support agent's prose (it copied and contradicted it); verified terminal facts pinned at
+the top of support answers; support "grounding" computed on numeric claims only (the reported 25 % was a
+method artefact: lexical overlap between Portuguese prose and JSON keys); prompt rules (no cross-product
+transfer, no unsupported comparisons, revenue ranges = rental-fee waiver, reproduce official steps).
+
+**Tests:** 168 → **201** (32 in `tests/test_tenant_isolation.py`, 1 product-filter test), none removed;
+one assertion updated to the new, more specific data flow (`test_multi_agent_plan_propagates_context`
+now requires the verified diagnosis in the Knowledge prompt). Coverage 92%.
+
+**Compatibility:** no API contract change. New response for cross-merchant requests:
+`status: "blocked"`, `metadata.route.intent: "cross_merchant_denied"`, flag `cross_merchant_request`.
+
 ## v2.0.0 — remediation after evaluator feedback (branch `remediation`)
 
 The original submission is preserved at tag **`v1.0-submission`** (commit `2f94c47`); `origin/main`

@@ -317,7 +317,7 @@ python -m pytest -q
 python -m pytest --cov=app --cov-report=term-missing
 ```
 
-Current result: see [§20](#20-semantic-evaluation) and [`docs/evaluation.md`](docs/evaluation.md) — **168 passed, 0 skipped, 92 % line coverage of `app/`** (offline).
+Current result: see [§20](#20-semantic-evaluation) and [`docs/evaluation.md`](docs/evaluation.md) — **201 passed, 0 skipped, 92% line coverage of `app/`** (offline).
 
 ### Testing strategy
 
@@ -534,6 +534,12 @@ to the merchant's own recent data → + Customer Support. No framework migration
   and `operator`. The tools receive `principal.merchant_id`; the body's `user_id` must match it.
   *Limit:* this is local API-caller authentication, not an identity provider (no SSO/OIDC, MFA or
   key-rotation service); the `Principal` boundary is where an IdP-issued JWT would plug in.
+- **Tenant isolation** (`app/security/tenancy.py`, v2.1): requests about another merchant ("as
+  transações do cliente2024", "outro lojista", identity override, "E as dele?" after a refusal) are
+  refused before routing and before any tool call, without revealing whether that merchant exists;
+  private tools are authorized against the principal; support answers naming another merchant or citing
+  transaction ids / R$ amounts absent from the tool output are replaced by a deterministic summary of the
+  merchant's own data. See `CHANGELOG.md` v2.1.0 for the incident and diagnosis.
 - **Guardrails** (`app/services/guardrails.py`): prompt-injection (EN/PT) and unsafe/fraud requests
   return `status: "blocked"` before any LLM call; card numbers (Luhn), CPF and CNPJ are masked
   before the LLM sees them **and before anything is persisted**; blocked inputs are stored as a

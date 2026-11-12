@@ -84,7 +84,7 @@ Legend: **T** offline test · **E** real-model evaluation (`docs/evaluation.md`)
 | Knowledge: RAG grounded in the Getnet website + web search | + retrieval precision, + evidence, + grounding policy | T `test_rag.py`, `test_grounding.py`; E | PASS |
 | Customer Support: user data, ≥ 2 tools | Identity now from the authenticated principal | T `test_tools.py`, `test_auth.py`; E | PASS |
 | `POST` endpoint with `{message, user_id}` | Same payload; bearer token now required; `user_id` must match | T `test_api.py`, `test_auth.py` | PASS |
-| Docker | + state volume, `STATE_DB_PATH` | D: build, 168 tests in image, non-root, healthy, auth, restart persistence (`docs/evaluation.md` §7) | PASS |
+| Docker | + state volume, `STATE_DB_PATH` | D: build, 201 tests in image (v2.1), non-root, healthy, auth, restart persistence (`docs/evaluation.md` §7) | PASS |
 | Testing strategy | + security, memory, HITL, grounding, replanning, observability suites; + semantic evaluation | T; E | PASS |
 | README | Updated for v2 | R | PASS |
 
@@ -102,7 +102,7 @@ Legend: **T** offline test · **E** real-model evaluation (`docs/evaluation.md`)
 | Expectation (gap) | v2 implementation | Verification |
 |---|---|---|
 | Gap 1 — persistent multi-turn memory | SQLite conversations, owner-scoped, follow-up rewrite, bounded window, restart recovery | T `test_conversations.py`; E multi-turn cases |
-| Gap 2 — authentication & authorization | Hashed bearer tokens, `Principal`, roles, 401/403/404 matrix | T `test_auth.py`; E `adv04` (403) |
+| Gap 2 — authentication & authorization | Hashed bearer tokens, `Principal`, roles, 401/403/404 matrix; v2.1 tenant isolation of cross-merchant requests and outputs | T `test_auth.py`, `test_tenant_isolation.py` (32); E `adv04` (403); real-model attack verification (`docs/evaluation.md` §8) |
 | Gap 4 — semantic correctness measured on evidence | Evidence retained; grounding checks; dataset with facts/forbidden claims; human rubric | T `test_grounding.py`; E |
 | Gap 5 — adaptive replanning | Deterministic bounded supervisor | T `test_replanning.py` |
 
