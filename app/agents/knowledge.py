@@ -35,7 +35,10 @@ class KnowledgeAgent(BaseAgent):
     # ---------------- RAG ----------------
     async def _answer_rag(self, task: AgentTask) -> AgentResult:
         ctx = context_summary(task)
-        query = task.message if not ctx else f"{task.message}\n{ctx[:300]}"
+        # Retrieval query: the merchant's message + STRUCTURED diagnosis from the support tools (terminal error,
+        # decline reason). The free-text support answer pulled unrelated "cartão" FAQ chunks into troubleshooting.
+        diag = [d for r in task.context for d in r.data.get("diagnosis", [])]
+        query = f"{task.message}\n{' '.join(diag)[:200]}" if diag else (task.message if not ctx else f"{task.message}\n{ctx[:300]}")
         hits = self.retriever.retrieve(query)
         evidence = [{"type": "rag", "rank": i, "chunk_id": h["id"], "url": h["url"], "title": h["title"], "text": h["text"],
                      "score": h["score"], "bm25": h.get("bm25"), "rrf": h.get("rrf")} for i, h in enumerate(hits, 1)]

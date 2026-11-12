@@ -23,6 +23,7 @@ from app.agents.personality import Personality
 from app.agents.prompts import REWRITE_SYSTEM, ROUTER_SYSTEM
 from app.rag.grounding import numbers
 from app.models.schemas import (AgentName, AgentResult, AgentTask, ChatResponse, Intent, RouteDecision, StepTrace)
+from app.security.tenancy import CROSS_MERCHANT_INTENT, cross_merchant_reason, foreign_merchant_refs, refusal
 from app.services.guardrails import check_input
 from app.services.llm import LLMClient, LLMError, parse_json
 from app.services import usage
@@ -73,7 +74,8 @@ OUT_OF_SCOPE_REPLY = ("That is outside what I can help with. I can answer questi
 _HUMAN = re.compile(r"(human|person|attendant|atendente|real agent|talk to (someone|an? agent)|falar com (algu[eé]m|um atendente)|ouvidoria)", re.I)
 _DEVICE = re.compile(r"(card machine|machine|terminal|\bpos\b|maquininha|m[aá]quina)", re.I)
 _PROBLEM = re.compile(r"(won'?t|not working|doesn'?t|can'?t|error|erro|declin|recus|negad|connect|offline|travou|problem|problema|n[aã]o (liga|conecta|funciona))", re.I)
-_ACCOUNT = re.compile(r"\b(my|my own|minhas?|meus?)\b.*\b(sales|sale|money|deposit|settlement|transactions?|payments?|vendas?|dinheiro|repasse|recebimentos?)\b"
+_ACCOUNT = re.compile(r"\b(my|my own|minhas?|meus?)\b.*\b(sales|sale|money|deposit|settlement|transactions?|payments?|vendas?|dinheiro|repasse|recebimentos?|"
+                      r"transa[cç][aãoõ]+e?s?|receb[ií]veis|dep[oó]sitos?)\b"
                       r"|\b(deposited|yesterday'?s sales|vendas de ontem|cair na (minha )?conta)\b", re.I)
 _GENERAL = re.compile(r"(weather|forecast|temperature|exchange rate|c[aâ]mbio|cota[cç][aã]o|previs[aã]o do tempo|news|not[ií]cias)", re.I)
 _PRODUCT_Q = re.compile(r"^\s*(do i need|can i|how does|how do|how many|what is|what's the difference|what are|is it possible|preciso|posso|como funciona|quantas?)\b", re.I)
@@ -198,6 +200,17 @@ class RouterAgent:
                 logger.info("LLM routing failed, using rules: %s", e)
         return classify_rules(message)
 
+    def _cross_merchant_refusal(self, message: str, reason: str, meta: dict, t0: float, trace_id: str) -> ChatResponse:
+        meta["guardrails"] = {**meta.get("guardrails", {}), "flags": [*meta.get("guardrails", {}).get("flags", []),
+                                                                       "cross_merchant_request"]}
+        meta |= {"blocked_reason": reason, "route": {"intent": CROSS_MERCHANT_INTENT, "agents": [], "reason": reason,
+                                                     "method": "rules"},
+                 "steps": [], "evidence": [], "grounding": {}, "replans": [], "usage": usage.totals(),
+                 "latency_ms": int((time.perf_counter() - t0) * 1000)}
+        log_event(logger, "request_blocked", trace_id=trace_id, flags=["cross_merchant_request"], reason=reason)
+        return ChatResponse(answer=refusal(message), status="blocked", agent=AgentName.ROUTER, agents_invoked=[],
+                            metadata=meta)
+
     async def resolve_followup(self, message: str, history: list[dict] | None) -> tuple[str, dict]:
         """Turn an elliptical follow-up into a standalone message (LLM rewrite → deterministic fallback)."""
         info = {"history_messages": len(history or []), "followup": False, "rewrite_method": None}
@@ -242,8 +255,15 @@ class RouterAgent:
                 status="blocked", agent=AgentName.ROUTER, agents_invoked=[],
                 metadata=meta | {"blocked_reason": guard.reason, "latency_ms": int((time.perf_counter() - t0) * 1000)})
 
+        # Tenant isolation (defence layer 1): refuse cross-merchant requests BEFORE routing or any tool call.
+        reason = cross_merchant_reason(guard.sanitized, user_id, history)
+        if reason:
+            return self._cross_merchant_refusal(guard.sanitized, reason, meta, t0, trace_id)
         standalone, conv_info = await self.resolve_followup(guard.sanitized, history)
         meta["conversation"] = conv_info
+        reason = cross_merchant_reason(standalone, user_id, None)  # a rewrite must not smuggle in another merchant
+        if reason:
+            return self._cross_merchant_refusal(guard.sanitized, "rewritten " + reason, meta, t0, trace_id)
         route = await self.classify(standalone)
         log_event(logger, "routed", trace_id=trace_id, intent=route.intent.value, agents=[a.value for a in route.agents],
                   method=route.method, followup=conv_info["followup"])
@@ -287,6 +307,12 @@ class RouterAgent:
         meta["replans"] = replans
 
         answer, merged_with_llm = await self.personality.compose(standalone, results)
+        # Tenant isolation (defence layer 3): never return text that names another merchant.
+        foreign = foreign_merchant_refs(answer, user_id)
+        if foreign:
+            meta.setdefault("guardrails", {}).setdefault("output_flags", []).append("foreign_merchant_reference")
+            log_event(logger, "output_blocked", trace_id=trace_id, reason="foreign merchant reference in answer")
+            answer = refusal(standalone)
         status = _overall_status(results)
         sources = []
         for r in results:

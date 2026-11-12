@@ -38,12 +38,16 @@ class ChatService:
             history = self.conversations.window(conv["id"], self.history_window)
             resp = await self.router.handle(req.message, principal.merchant_id, history=history, conversation_id=conv["id"])
         blocked = resp.status == "blocked"
+        cross = "cross_merchant_request" in (resp.metadata.get("guardrails") or {}).get("flags", [])
         user_content = BLOCKED_PLACEHOLDER if blocked else guard.sanitized  # PII masked before persistence
         trace_id = resp.metadata.get("trace_id")
         intent = (resp.metadata.get("route") or {}).get("intent")
         self.conversations.add_turn(conv["id"], [
             {"role": "user", "content": user_content, "trace_id": trace_id, "excluded": blocked},
-            {"role": "assistant", "content": resp.answer, "trace_id": trace_id, "intent": intent, "excluded": blocked,
+            # the refusal stays in history (not excluded) so "E as transações dele?" is refused too;
+            # the user message naming the other merchant is excluded and never replayed to the LLM
+            {"role": "assistant", "content": resp.answer, "trace_id": trace_id, "intent": intent,
+             "excluded": blocked and not cross,
              "metadata": {"status": resp.status, "agents_invoked": [a.value for a in resp.agents_invoked],
                           "sources": [s.model_dump() for s in resp.sources],
                           "handoff_ticket": resp.metadata.get("handoff_ticket")}},

@@ -41,7 +41,8 @@ def context_summary(task: AgentTask, max_chars: int = 1200) -> str:
 
 _PT = re.compile(r"\b(n[aã]o|voc[eê]|minha?s?|meus?|quando|como|qual|quais|preciso|vendas?|vender|obrigad[oa]|ol[aá]|para|bom|boa|"
                  r"est[aá]|maquininha|dinheiro|ontem|hoje|posso|quantas?|quantos?|parcelas?|em|no|na|nos|nas|do|da|dos|das|"
-                 r"de|um|uma|que|[eé]|s[aã]o|com|pelo|pela|ter|tenho|funciona|conta|receber|cr[eé]dito|d[eé]bito)\b", re.I)
+                 r"de|um|uma|que|[eé]|s[aã]o|com|pelo|pela|ter|tenho|funciona|conta|receber|cr[eé]dito|d[eé]bito|os|as|"
+                 r"mostre|mostrar|quero|consultar|transa[cç][aãoõ]+e?s?|receb[ií]veis|dados|dele|dela)\b", re.I)
 
 
 def detect_language(text: str) -> str:
